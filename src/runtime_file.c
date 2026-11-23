@@ -443,10 +443,17 @@ static int64_t do_getdents(int fd,char *buffer,uint64_t size,int64_t *basep) {
     else {
         if (basep) *basep=(int64_t)f->position;
         uint64_t written=0;
+        uint64_t last_reclen_offset=0;
         while (f->position<f->dir->count) {
             const char *name=f->dir->names+f->dir->offsets[f->position];
             size_t n=strlen(name); if (n>255) n=255;
-            uint16_t reclen=(uint16_t)((8+n+1+7)&~(size_t)7);
+            uint16_t reclen=(uint16_t)((8+n+1+3)&~(size_t)3);
+            uint64_t in_block=written%512;
+            if (in_block && in_block+reclen>512) {
+                uint16_t pad=(uint16_t)(512-in_block);
+                *(uint16_t *)(buffer+last_reclen_offset+4) += pad;
+                written+=pad;
+            }
             if (written+reclen>size) break;
             char *p=buffer+written;
             memset(p,0,reclen);
@@ -454,6 +461,7 @@ static int64_t do_getdents(int fd,char *buffer,uint64_t size,int64_t *basep) {
             memcpy(p,&ino,4); memcpy(p+4,&reclen,2);
             p[6]=(char)f->dir->types[f->position]; p[7]=(char)n;
             memcpy(p+8,name,n);
+            last_reclen_offset=written;
             written+=reclen; ++f->position;
         }
         result=(int64_t)written;
