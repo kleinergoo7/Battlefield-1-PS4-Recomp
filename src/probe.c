@@ -378,6 +378,11 @@ static void dump_poll_target(void) {
     uint64_t wc=*(uint64_t *)(image+0x4d3efc0), ctx=*(uint64_t *)(image+0x3e6ada8);
     snprintf(line,sizeof(line),"  HANDLE global 0x4d3efc0=%p 0x3e6ada8=%p\n",(void*)wc,(void*)ctx);
     w_=write(2,line,strlen(line)); (void)w_;
+    /* UI transition globals checked by fn 0x1770 (called from the 0x6c40 loop). */
+    uint64_t g0=*(uint64_t *)(image+0x3eb8af0), g1=*(uint64_t *)(image+0x3eb8af8);
+    uint32_t ctr=*(uint32_t *)(image+0x3eb8ac8);
+    snprintf(line,sizeof(line),"  UI global 0x3eb8af0=%p 0x3eb8af8=%p counter=%u\n",(void*)g0,(void*)g1,ctr);
+    w_=write(2,line,strlen(line)); (void)w_;
 }
 static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); }
 static void watchdog(int sig, siginfo_t *info, void *context) {
