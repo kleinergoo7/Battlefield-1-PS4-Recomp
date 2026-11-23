@@ -30,6 +30,8 @@ void runtime_report(void);
 void runtime_set_report_hook(void (*hook)(void));
 /* Start a pre-linked PRX whose module_start was deferred to LoadStartModule. */
 int probe_start_deferred(int index);
+/* Register the guest main thread's low-mapped stack (probe.c allocates it). */
+void runtime_thread_set_main_stack(void *base, size_t bytes);
 void runtime_finalize(void *dso);
 uintptr_t runtime_mutex_resolve(const char *name);
 void runtime_mutex_report(void);

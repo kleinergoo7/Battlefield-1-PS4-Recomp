@@ -1269,6 +1269,9 @@ static const RuntimeExport exports[] = {
 };
 
 uintptr_t runtime_bf1_stubs_resolve(const char *name) {
+    /* JSStringRelease gets NULL from JSValueToStringCopy failures. shadPS4's
+     * stub is a no-op, so keep that one NULL-safe even with real JSC active. */
+    if (name && !strcmp(name,"Nm-U+BAjCkY#libJavaScriptCore")) return (uintptr_t)bf1_zero_stub;
     /* Let the real linked JavaScriptCore exports win when the PRX is loaded. */
     if (getenv("SPARTAN_NO_JSC_STUBS") && name && strstr(name,"JavaScriptCore")) return 0;
     return RUNTIME_LOOKUP(exports, name);

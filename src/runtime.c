@@ -68,6 +68,7 @@ static ABI int64_t bf1_unknown_13(void) { printf("BF1 private stub: mgjWUOKHkJg#
 static ABI int64_t bf1_unknown_14(void) { printf("BF1 private stub: qiOZEn26Kds# EAWebKit\n"); return 0; }
 static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
 
+static ABI int64_t bf1_jsc_noop(void) { return 0; } /* NULL-safe JSStringRelease */
 static void bf1_dummy_virtual(void) {}
 static void *bf1_dummy_vtable[] = {
     bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
@@ -261,6 +262,9 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "EXv3ztGqtDM#libkernel")) return (uintptr_t)mutexattr_setpshared;
     if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail"))
         return (uintptr_t)bf1_buildinfo_singleton;
+    /* JSStringRelease receives NULL when JSValueToStringCopy fails; shadPS4's
+     * stub is a no-op, so make it NULL-safe even with real JSC exports active. */
+    if (name && !strcmp(name,"Nm-U+BAjCkY#libJavaScriptCore")) return (uintptr_t)bf1_jsc_noop;
     /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs. */
     if (getenv("SPARTAN_NO_JSC_STUBS") && name &&
         (strstr(name,"libJavaScriptCore") || strstr(name,"EAWebKit"))) return 0;

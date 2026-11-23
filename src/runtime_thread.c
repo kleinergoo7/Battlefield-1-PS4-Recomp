@@ -174,6 +174,10 @@ void runtime_thread_attach_main(void) {
     snprintf(t->name,sizeof(t->name),"main");
     set_host_name(t->name);
 }
+void runtime_thread_set_main_stack(void *base,size_t bytes) {
+    GuestThread *t=runtime_thread_current();
+    t->stack_memory=base; t->stack_bytes=bytes; t->stack_low_mapped=base ? 1 : 0;
+}
 /* Records are never removed (games create threads again during every load), so a found
  * thread moves to the front: the threads the game asks about (priorities, affinity) are not
  * behind every finished one (from Awakenchan 0.9.34 beta 9.9). SPARTAN_THREAD_FRONT=0: the list
