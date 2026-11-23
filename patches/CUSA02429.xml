@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<Patch>
+    <TitleID>
+        <ID>CUSA02429</ID>
+    </TitleID>
+    <Metadata Title="SpartanPort" Name="Bug Fix - Skip offline assertion" Note="Replaces a deliberate fatal trap reached during offline startup with a return." Author="kleinergoo7" PatchVer="1.0" AppVer="01.00" AppElf="eboot.bin" isEnabled="true">
+        <PatchList>
+            <Line Type="bytes" Address="0x00470473" Value="c3909090909090909090"/>
+        </PatchList>
+    </Metadata>
+</Patch>

@@ -165,7 +165,8 @@ PATCHES_DIR=Path(__file__).resolve().parent.parent/'patches'
 # signatures find the sites in any region or version whose code matches, so the eboot.bin build is
 # not checked.
 GAMES=[({'CUSA01623','CUSA01715','CUSA01720','CUSA01740'},PATCHES_DIR/'CUSA01623.xml','01.02',
-        'God of War III')]
+        'God of War III'),
+       ({'CUSA02429'},PATCHES_DIR/'CUSA02429.xml','01.00','Battlefield 1')]
 # The build the built-in Address values and third-party patch files are written for.
 REFERENCE_SHA256='d85c8135d330c3b601bf5dc3f1dd86bd6119fb8a9fce372bed2c9785f9a79299'
 DMEM_RETAIL_MB=5056  # runtime_memory.c POOL_SIZE default

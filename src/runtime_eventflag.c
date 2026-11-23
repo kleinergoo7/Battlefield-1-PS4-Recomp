@@ -116,5 +116,7 @@ static const RuntimeExport exports[] = {
 };
 
 uintptr_t runtime_eventflag_resolve(const char *name) {
-    return RUNTIME_LOOKUP(exports, name);
+    uintptr_t resolved = RUNTIME_LOOKUP(exports, name);
+    if (resolved) printf("EVF resolve %s -> %p\n", name, (void *)resolved);
+    return resolved;
 }

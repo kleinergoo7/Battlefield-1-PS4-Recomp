@@ -43,7 +43,23 @@ static ABI int32_t random_bytes(unsigned char *buffer, uint64_t size) {
 static ABI int32_t mutexattr_setpshared(void *attr, int pshared) {
     (void)attr; (void)pshared; return 0;
 }
-static ABI int64_t bf1_private_stub(void) { return 0; }
+static ABI int64_t bf1_unknown_0(void) { printf("BF1 private stub: 2uT9ySAHVKE# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_1(void) { printf("BF1 private stub: 4XQM-UBEYpM# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_2(void) { printf("BF1 private stub: 7EUw1e-hbNY# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_3(void) { printf("BF1 private stub: 7pPMWplBcGQ# libJavaScriptCore\n"); return 0; }
+static ABI int64_t bf1_unknown_4(void) { printf("BF1 private stub: B3XayzEfnsg# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_5(void) { printf("BF1 private stub: JKBJn3GL0JE# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_6(void) { printf("BF1 private stub: L+uHfIz5ao8# libJavaScriptCore\n"); return 0; }
+static ABI int64_t bf1_unknown_7(void) { printf("BF1 private stub: LuHdTFPohDE# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_8(void) { printf("BF1 private stub: O8DunroJtKc# libJavaScriptCore\n"); return 0; }
+static ABI int64_t bf1_unknown_9(void) { printf("BF1 private stub: Soq7bosBHpo# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_10(void) { printf("BF1 private stub: UCIrgrj61F0# Engine.BuildInfo_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_11(void) { printf("BF1 private stub: Zd-z5tJxpJw# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+static ABI int64_t bf1_unknown_12(void) { printf("BF1 private stub: fJgP+wqifno# libSceDiscMap\n"); return 0; }
+static ABI int64_t bf1_unknown_13(void) { printf("BF1 private stub: mgjWUOKHkJg# libJavaScriptCore\n"); return 0; }
+static ABI int64_t bf1_unknown_14(void) { printf("BF1 private stub: qiOZEn26Kds# EAWebKit\n"); return 0; }
+static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
+
 static void bf1_dummy_virtual(void) {}
 static void *bf1_dummy_vtable[] = {
     bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
@@ -237,22 +253,22 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "EXv3ztGqtDM#libkernel")) return (uintptr_t)mutexattr_setpshared;
     if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail"))
         return (uintptr_t)bf1_buildinfo_singleton;
-    if (!strcmp(name, "2uT9ySAHVKE#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "4XQM-UBEYpM#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "7EUw1e-hbNY#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "7pPMWplBcGQ#libJavaScriptCore") ||
-        !strcmp(name, "B3XayzEfnsg#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "JKBJn3GL0JE#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "L+uHfIz5ao8#libJavaScriptCore") ||
-        !strcmp(name, "LuHdTFPohDE#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "O8DunroJtKc#libJavaScriptCore") ||
-        !strcmp(name, "Soq7bosBHpo#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "Zd-z5tJxpJw#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "fJgP+wqifno#libSceDiscMap") ||
-        !strcmp(name, "mgjWUOKHkJg#libJavaScriptCore") ||
-        !strcmp(name, "qiOZEn26Kds#EAWebKit") ||
-        !strcmp(name, "uaS4VsGOM7Q#Extension.Twinkle.Codec_gen4b_retail"))
-        return (uintptr_t)bf1_private_stub;
+    if (!strcmp(name, "2uT9ySAHVKE#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_0;
+    if (!strcmp(name, "4XQM-UBEYpM#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_1;
+    if (!strcmp(name, "7EUw1e-hbNY#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_2;
+    if (!strcmp(name, "7pPMWplBcGQ#libJavaScriptCore")) return (uintptr_t)bf1_unknown_3;
+    if (!strcmp(name, "B3XayzEfnsg#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_4;
+    if (!strcmp(name, "JKBJn3GL0JE#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_5;
+    if (!strcmp(name, "L+uHfIz5ao8#libJavaScriptCore")) return (uintptr_t)bf1_unknown_6;
+    if (!strcmp(name, "LuHdTFPohDE#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_7;
+    if (!strcmp(name, "O8DunroJtKc#libJavaScriptCore")) return (uintptr_t)bf1_unknown_8;
+    if (!strcmp(name, "Soq7bosBHpo#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_9;
+    if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail")) return (uintptr_t)bf1_unknown_10;
+    if (!strcmp(name, "Zd-z5tJxpJw#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_11;
+    if (!strcmp(name, "fJgP+wqifno#libSceDiscMap")) return (uintptr_t)bf1_unknown_12;
+    if (!strcmp(name, "mgjWUOKHkJg#libJavaScriptCore")) return (uintptr_t)bf1_unknown_13;
+    if (!strcmp(name, "qiOZEn26Kds#EAWebKit")) return (uintptr_t)bf1_unknown_14;
+    if (!strcmp(name, "uaS4VsGOM7Q#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_15;
     /* Not imported by the current eboot, exposed for ABI tests/future use. */
     if (!strcmp(name, "H2e8t5ScQGc#libc")) return (uintptr_t)guest_finalize;
     if (!strcmp(name, "3GPpjQdAMTw#libc")) return (uintptr_t)guard_acquire;
