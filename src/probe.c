@@ -286,6 +286,14 @@ static void fault(int sig, siginfo_t *info, void *context) {
     else
         snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, info->si_addr);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+    snprintf(line,sizeof(line),
+             "  regs rip=%p rax=%p rbx=%p rcx=%p rdx=%p rdi=%p rsi=%p r8=%p r9=%p r10=%p rsp=%p\n",
+             (void*)rip,(void*)uc->uc_mcontext.gregs[REG_RAX],(void*)uc->uc_mcontext.gregs[REG_RBX],
+             (void*)uc->uc_mcontext.gregs[REG_RCX],(void*)uc->uc_mcontext.gregs[REG_RDX],
+             (void*)uc->uc_mcontext.gregs[REG_RDI],(void*)uc->uc_mcontext.gregs[REG_RSI],
+             (void*)uc->uc_mcontext.gregs[REG_R8],(void*)uc->uc_mcontext.gregs[REG_R9],
+             (void*)uc->uc_mcontext.gregs[REG_R10],(void*)uc->uc_mcontext.gregs[REG_RSP]);
+    { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
     if (gpu_enabled) spartanportgpu_dump_guest_writes(context);
     /* Host call chain (frames with unwind info; guest frames end it). */
     void *frames[32];
