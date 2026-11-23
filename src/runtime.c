@@ -280,10 +280,13 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
      * stub is a no-op, so make it NULL-safe even with real JSC exports active. */
     if (getenv("SPARTAN_JSCB") && name && !strcmp(name,"Tm9bXhmwlMA#libJavaScriptCore")) return (uintptr_t)jsc_makefunccb;
     if (name && !strcmp(name,"Nm-U+BAjCkY#libJavaScriptCore")) return (uintptr_t)bf1_jsc_noop;
-    /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs. */
+    /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs.
+     * Exception: shadPS4's eboot gets a zero stub for qiOZEn26Kds (EAWebKit) and
+     * only ff_WebBrowser gets the real export — match that with the env gate. */
     if (getenv("SPARTAN_NO_JSC_STUBS") && name &&
-        (strstr(name,"libJavaScriptCore") || strstr(name,"EAWebKit") ||
-         strstr(name,"Extension.Twinkle.Codec"))) return 0;
+        (strstr(name,"libJavaScriptCore") || strstr(name,"Extension.Twinkle.Codec"))) return 0;
+    if (getenv("SPARTAN_NO_JSC_STUBS") && name && strstr(name,"EAWebKit") &&
+        !getenv("SPARTAN_EAWEBKIT_REAL")) return (uintptr_t)bf1_unknown_14;
     if (!strcmp(name, "2uT9ySAHVKE#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_0;
     if (!strcmp(name, "4XQM-UBEYpM#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_1;
     if (!strcmp(name, "7EUw1e-hbNY#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_2;
