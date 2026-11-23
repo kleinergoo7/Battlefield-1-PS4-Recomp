@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
 #include <xxhash.h>
 #include "video_core/renderer_vulkan/ui_composition.h"
 #include "spartanport_depth_of_field.h"
@@ -3120,7 +3121,7 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                 buffer_infos.emplace_back(vk_buffer.Handle(), offset, sizeof(dof_constants));
             } else {
                 const u64 size = memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize());
-                if (size != vsharp.GetSize()) {
+                if (size != vsharp.GetSize() && std::getenv("SPARTAN_LOG_CLAMPS")) {
                     LOG_ERROR(Render, "Clamped size from {} to {} for stage {:#x}",
                               vsharp.GetSize(), size, stage.pgm_hash);
                 }
