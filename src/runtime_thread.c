@@ -37,7 +37,7 @@ typedef void *(ABI *GuestEntry)(void *);
 typedef struct ThreadAttr {
     uint32_t magic;
     int detached, policy, prio, inherit;
-    uint64_t stack, guard, affinity;
+    uint64_t stack, guard, affinity, stack_addr;
     struct ThreadAttr *next;
 } ThreadAttr;
 typedef struct GuestThread {
@@ -232,6 +232,17 @@ static ABI int32_t attr_get(void *thread,ThreadAttr **out) {
     ThreadAttr *next=a->next;
     *a=t->attr; a->magic=ATTR_MAGIC; a->next=next;
     a->detached=t->detached;
+    /* JSC derives its stack bound from GetStackAddr + GetStackSize. Return the
+     * real top so guest code never computes 0x100000 from size+NULL. */
+    if (t->stack_memory) a->stack_addr=(uint64_t)(uintptr_t)t->stack_memory+t->stack_bytes;
+    else {
+        pthread_attr_t pattr; void *base=NULL; size_t bytes=0;
+        if (!pthread_getattr_np(pthread_self(),&pattr)) {
+            pthread_attr_getstack(&pattr,&base,&bytes);
+            pthread_attr_destroy(&pattr);
+        }
+        a->stack_addr=base ? (uint64_t)(uintptr_t)base+bytes : 0;
+    }
     return 0;
 }
 static ABI int32_t attr_set_stack(ThreadAttr **slot,uint64_t size) {
@@ -253,9 +264,9 @@ static ABI int32_t attr_set_stack_addr(ThreadAttr **slot,void *address,uint64_t 
     return attr_set_stack(slot,size);
 }
 static ABI int32_t attr_get_stack_addr(ThreadAttr **slot,void **address) {
-    (void)slot;
+    ThreadAttr *a=find_attr(slot);
     if (!address) return ERR(22);
-    *address=NULL;
+    *address=a ? (void *)(uintptr_t)a->stack_addr : NULL;
     return 0;
 }
 static ABI int32_t attr_set_detach(ThreadAttr **slot,int state) {

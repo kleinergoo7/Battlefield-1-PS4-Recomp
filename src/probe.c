@@ -315,6 +315,13 @@ static void fault(int sig, siginfo_t *info, void *context) {
              (void*)uc->uc_mcontext.gregs[REG_RBP]);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
     if (gpu_enabled) spartanportgpu_dump_guest_writes(context);
+    {
+        char diag[256];
+        uint64_t g0=*(uint64_t *)(image+0x53cc600), g1=*(uint64_t *)(image+0x53cc608);
+        snprintf(diag,sizeof(diag),"  JSC globals: 0x53cc600=%p 0x53cc608=%p (image=%p)\n",
+                 (void*)g0,(void*)g1,(void*)image);
+        ssize_t w_=write(2,diag,strlen(diag)); (void)w_;
+    }
     /* Host call chain (frames with unwind info; guest frames end it). */
     void *frames[32];
     int depth = backtrace(frames, 32);
