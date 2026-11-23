@@ -44,6 +44,7 @@ typedef struct { uint64_t target, kind, value, addend; } Reloc;
 static char (*names)[128];
 static uint64_t import_count;
 static unsigned char *image;
+uintptr_t probe_image_base(void) { return (uintptr_t)image; }
 /* Deferred module_start for pre-linked PRXs that the game loads at run time. */
 static uint64_t deferred_init[8];
 void probe_set_deferred_init(int index, uint64_t offset) { deferred_init[index] = offset; }
@@ -364,7 +365,16 @@ static void dump_frames(ucontext_t *uc) {
         rbp=frame[0]; rip=frame[1];
     }
 }
-static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); }
+static void dump_poll_target(void) {
+    char line[256];
+    uint64_t obj=*(uint64_t *)(image+0x3ea8a08);
+    uint64_t vt=obj ? *(uint64_t *)obj : 0;
+    uint64_t fn=vt ? *(uint64_t *)(vt+0xc0) : 0;
+    snprintf(line,sizeof(line),"  POLL obj=%p vtable=%p fn=%p img=%p fn_img=%lld\n",
+             (void*)obj,(void*)vt,(void*)fn,(void*)image,(long long)((int64_t)fn-(int64_t)image));
+    ssize_t w_=write(2,line,strlen(line)); (void)w_;
+}
+static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); }
 static void watchdog(int sig, siginfo_t *info, void *context) {
     (void)info;
     const char head[]="STOP: watchdog timeout; thread stacks:\n";
