@@ -306,6 +306,7 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     Listing *dir=NULL;
     if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path);
 #endif
+    if (getenv("SPARTAN_LOG_OPENS")) printf("Runtime: open(%s) flags=%x -> host %d\n",guest,flags,host);
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }

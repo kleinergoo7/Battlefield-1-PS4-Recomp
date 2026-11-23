@@ -1,10 +1,15 @@
 /* Offline-safe fallback stubs for BF1 imports not otherwise implemented. */
 #include "runtime.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 static char bf1_dummy_object[256];
 static ABI int64_t bf1_zero_stub(void) { return 0; }
-static ABI int64_t bf1_pointer_stub(void) { return (int64_t)(uintptr_t)bf1_dummy_object; }
+static ABI int64_t bf1_pointer_stub(void) {
+    /* shadPS4's CommonStub returns zero for every JSC import; match it exactly. */
+    if (getenv("SPARTAN_JSC_ZERO")) return 0;
+    return (int64_t)(uintptr_t)bf1_dummy_object;
+}
 
 static ABI int64_t bf1_stub_0(void) { printf("BF1 stub %s: sceGnmSetEmbeddedVsShader\n", "bf1_zero_stub"); return bf1_zero_stub(); }
 static ABI int64_t bf1_stub_1(void) { printf("BF1 stub %s: scePthreadSetspecific\n", "bf1_zero_stub"); return bf1_zero_stub(); }
