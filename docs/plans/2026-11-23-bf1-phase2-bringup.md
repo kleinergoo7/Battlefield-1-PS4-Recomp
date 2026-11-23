@@ -114,3 +114,14 @@ Option 1 is the correct long-term fix; option 2 is the fastest path to a first f
   `sceKernelGetdirentries`) so asset directory enumeration works.
 - Added case-insensitive guest path resolution (separate commit).
 - Result: RECOMP still shows only the loading spinner; longer run in progress.
+
+## Direct-memory grow remap (2026-11-23, later)
+
+- Addressed the guest OOB write at 0x92afd1: `MAP_FIXED|MAP_NO_OVERWRITE`
+  grow-remaps of an existing direct mapping were refused, leaving a stale short
+  mapping. `src/runtime_memory.c place()` now allows same-base direct remaps.
+- Added failure logging in `direct_map()`.
+- Verified: `mapped direct memory 0x383ccc0000, size=4259840 (over a mapping)`
+  replaced the previous failed map; no map errors, no crash in a 150 s run.
+- Current 300 s run continues to grow its log (55k+ lines), allocating direct
+  memory and compiling/reading pipeline shaders while still showing the spinner.
