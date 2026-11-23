@@ -159,7 +159,12 @@ static ABI const char *net_ntop(int af,const void *src,char *dst,uint32_t size) 
     return inet_ntop(AF_INET,src,dst,size);
 }
 static ABI int32_t netctl_state(int32_t *state) { if (!state) return NET_CTL_INVALID_ADDR; *state=0; return 0; }
-static ABI int32_t netctl_info(int code,void *info) { (void)code; (void)info; return NET_CTL_NOT_CONNECTED; }
+static ABI int32_t netctl_info(int code,void *info) {
+    (void)code;
+    if (getenv("SPARTAN_NETDBG")) fprintf(stderr,"[NET] CtlGetInfo code=%d\n",code);
+    if (getenv("SPARTAN_NETCTL_OK")) { if (info) memset(info,0,64); return 0; }
+    return NET_CTL_NOT_CONNECTED;
+}
 static ABI int32_t netctl_register(void *cb,void *arg,int32_t *cid) { (void)cb; (void)arg; if (!cid) return NET_CTL_INVALID_ADDR; *cid=new_id(); return 0; }
 static ABI int32_t netctl_check(void) { return 0; }
 static ABI int32_t netctl_unregister(int cid) { (void)cid; return 0; }
