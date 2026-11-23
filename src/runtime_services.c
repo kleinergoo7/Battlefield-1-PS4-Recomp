@@ -65,6 +65,7 @@ static ABI int32_t user_event(int32_t *event) {
     pthread_mutex_lock(&lock);
     int pending=login_event_pending; login_event_pending=0;
     pthread_mutex_unlock(&lock);
+    if (getenv("SPARTAN_USERDBG")) fprintf(stderr,"[USER] GetEvent pending=%d\n",pending);
     if (!pending) return USER_NO_EVENT;
     event[0]=0; event[1]=USER_ID; /* LOGIN */
     return 0;

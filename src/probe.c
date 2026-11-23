@@ -1502,6 +1502,13 @@ int main(int argc, char **argv) {
         _exit(missing ? 1 : 0); /* no destructors: GPU threads are running */
     }
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
+    /* Built-in BF1 fix: the eboot has two timing assertions ("10 slow TSC samples")
+     * that abort offline play on slower hosts. Replace the ud2 traps with nops. */
+    if (image[0x130b449]==0x0f && image[0x130b44a]==0x0b) {
+        image[0x130b449]=0x90; image[0x130b44a]=0x90;
+        image[0x130b4a9]=0x90; image[0x130b4aa]=0x90;
+        puts("Runtime: patched 2 BF1 timing assertions");
+    }
     if (gpu_enabled) install_orb_multiplier(segments, ns, size);
     if (gpu_enabled) install_cheats(segments, ns, size);
     if (gpu_enabled) find_engine_fps(segments, ns, size);
