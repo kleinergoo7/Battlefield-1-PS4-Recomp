@@ -236,16 +236,21 @@ static ABI int32_t attr_get(void *thread,ThreadAttr **out) {
     ThreadAttr *next=a->next;
     *a=t->attr; a->magic=ATTR_MAGIC; a->next=next;
     a->detached=t->detached;
-    /* JSC derives its stack bound from GetStackAddr + GetStackSize. Return the
-     * real top so guest code never computes 0x100000 from size+NULL. */
-    if (t->stack_memory) a->stack_addr=(uint64_t)(uintptr_t)t->stack_memory+t->stack_bytes;
-    else {
+    /* JSC derives its stack base from GetStackAddr + GetStackSize minus a fixed
+     * tag. The size MUST be the real mapping size, not the 1 MB attribute default:
+     * otherwise JSC places the stack base at the top and every script fails with
+     * "Maximum call stack size exceeded." */
+    /* JSC computes stack_base = (GetStackAddr + GetStackSize) - 0x100000, so
+     * GetStackAddr must be the BASE of the mapping and Size must stay 1 MB. */
+    if (t->stack_memory) {
+        a->stack_addr=(uint64_t)(uintptr_t)t->stack_memory;
+    } else {
         pthread_attr_t pattr; void *base=NULL; size_t bytes=0;
         if (!pthread_getattr_np(pthread_self(),&pattr)) {
             pthread_attr_getstack(&pattr,&base,&bytes);
             pthread_attr_destroy(&pattr);
         }
-        a->stack_addr=base ? (uint64_t)(uintptr_t)base+bytes : 0;
+        a->stack_addr=base ? (uint64_t)(uintptr_t)base : 0;
     }
     return 0;
 }
