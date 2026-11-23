@@ -94,7 +94,13 @@ uint64_t runtime_process_time_counter(void) { return process_time_counter(); }
 uint64_t runtime_tsc_frequency(void) { return tsc_frequency(); }
 uint64_t runtime_read_tsc(void) { return read_tsc(); }
 static int sleep_ns(uint64_t ns) {
-    if (!ns) runtime_thread_count_yield(1);
+    if (!ns) {
+        runtime_thread_count_yield(1);
+#ifndef _WIN32
+        sched_yield();
+#endif
+        return 0;
+    }
 #ifdef _WIN32
     compat_sleep_ns(ns);
 #else

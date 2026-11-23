@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
+#include <time.h>
 #include <string.h>
 
 #define MAX_EVENT_FLAGS 256
@@ -75,6 +77,15 @@ static ABI int32_t delete_event_flag(int32_t handle) {
     return 0;
 }
 
+static ABI int32_t clear_event_flag(int32_t handle, uint64_t bits) {
+    EventFlag *flag=resolve_handle(handle);
+    if (!flag) return 0x80020000;
+    pthread_mutex_lock(&flag->mutex);
+    flag->bits &= ~bits;
+    pthread_mutex_unlock(&flag->mutex);
+    return 0;
+}
+
 static ABI int32_t set_event_flag(int32_t handle, uint64_t bits) {
     EventFlag *flag = resolve_handle(handle);
     if (!flag) return 0x80020000;
@@ -86,16 +97,28 @@ static ABI int32_t set_event_flag(int32_t handle, uint64_t bits) {
 }
 
 static ABI int32_t wait_event_flag(int32_t handle, uint64_t bits, uint32_t mode,
-                                   uint64_t *result, const void *timeout) {
-    (void)timeout;
+                                   uint64_t *result, const int64_t *timeout) {
     EventFlag *flag = resolve_handle(handle);
     if (!flag || !result) return 0x80020000;
+    struct timespec deadline;
+    if (timeout) {
+        clock_gettime(CLOCK_REALTIME,&deadline);
+        deadline.tv_sec += timeout[0];
+        deadline.tv_nsec += timeout[1] * 1000;
+        while (deadline.tv_nsec >= 1000000000) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000; }
+    }
     pthread_mutex_lock(&flag->mutex);
     while (!flag->deleted) {
         int satisfied = (mode & EVF_WAIT_AND) ? (flag->bits & bits) == bits
                                               : (flag->bits & bits) != 0;
         if (satisfied) break;
-        pthread_cond_wait(&flag->condition, &flag->mutex);
+        int wait_result = timeout
+            ? pthread_cond_timedwait(&flag->condition,&flag->mutex,&deadline)
+            : pthread_cond_wait(&flag->condition,&flag->mutex);
+        if (wait_result == ETIMEDOUT) {
+            pthread_mutex_unlock(&flag->mutex);
+            return 0x80020060;
+        }
     }
     if (flag->deleted) {
         pthread_mutex_unlock(&flag->mutex);
@@ -112,6 +135,7 @@ static const RuntimeExport exports[] = {
     {"sceKernelCreateEventFlag", create_event_flag},
     {"sceKernelDeleteEventFlag", delete_event_flag},
     {"sceKernelSetEventFlag", set_event_flag},
+    {"sceKernelClearEventFlag", clear_event_flag},
     {"sceKernelWaitEventFlag", wait_event_flag},
 };
 

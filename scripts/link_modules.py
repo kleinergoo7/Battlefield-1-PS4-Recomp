@@ -25,6 +25,7 @@ HOST_OVERRIDES = {
     '8mql9OcQnd4',  # sceKernelDeleteEventFlag
     'IOnSvHzqu6A',  # sceKernelSetEventFlag
     'JTvBflhYazQ',  # sceKernelWaitEventFlag
+    '7uhBFWRAS60',  # sceKernelClearEventFlag
 }
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]
 
@@ -212,6 +213,9 @@ def link(game, out, module_names=DEFAULT_MODULES):
     bindings, unresolved = [], []
     for identity, index in identities.items():
         if identity and identity[0] in HOST_OVERRIDES:
+            import os
+            if os.environ.get('DEBUG_OVERRIDES'):
+                print('HOST OVERRIDE', identity, 'index', index)
             unresolved.append(names[index])
             continue
         found = exports.get(identity)

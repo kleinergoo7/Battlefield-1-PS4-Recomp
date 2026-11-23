@@ -102,3 +102,15 @@ Option 1 is the correct long-term fix; option 2 is the fastest path to a first f
 - Result: the native RECOMP no longer crashes; it opens a 1920x1016 window and
   renders BF1's loading spinner. It remains stuck on a spinner with worker
   threads in futex waits (possibly an unsignaled semaphore or asset-load wait).
+
+## Loader stall fixes (2026-11-23, later)
+
+- `sleep_ns(0)` now calls `sched_yield()` instead of `nanosleep({0,0})`; the guest
+  had made 543 million zero-duration sleeps in 300 s without yielding, starving
+  job workers.
+- Added `sceKernelClearEventFlag` and a timed `sceKernelWaitEventFlag`
+  implementation; both were previously zero-returning/infinite stubs.
+- Added correct 3-argument `sceKernelGetdents` alias (BF1 uses this instead of
+  `sceKernelGetdirentries`) so asset directory enumeration works.
+- Added case-insensitive guest path resolution (separate commit).
+- Result: RECOMP still shows only the loading spinner; longer run in progress.
