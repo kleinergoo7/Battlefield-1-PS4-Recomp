@@ -1460,8 +1460,8 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     if (!data) return ERR_INVALID_ARG;
     pthread_mutex_lock(&lock);
     sample(data); ++reads;
-    /* Diagnostic: pulse CROSS on the first reads to dismiss a legal/intro prompt. */
-    if (getenv("SPARTAN_AUTO_CONFIRM") && reads>=60 && reads<75) data->buttons|=BTN_CROSS;
+    /* Diagnostic: pulse CROSS periodically to dismiss a legal/intro prompt. */
+    if (getenv("SPARTAN_AUTO_CONFIRM") && (reads%240)<12) data->buttons|=BTN_CROSS;
     pthread_mutex_unlock(&lock);
     return 0;
 }

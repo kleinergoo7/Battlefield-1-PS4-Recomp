@@ -85,6 +85,7 @@ static int menu_confirm_is_swapped(const char *s) {
 }
 static ABI int32_t system_param(int32_t id,int32_t *value) {
     if (!value) return SYSTEM_PARAMETER;
+    if (getenv("SPARTAN_SYSDBG")) fprintf(stderr,"[SYS] ParamGetInt id=%d\n",id);
     switch (id) {
     case 1: *value=language(); break;           /* language (1 = English US, 8 = Russian) */
     case 2: *value=1; break;                    /* date format DD/MM/YYYY */
@@ -117,7 +118,11 @@ static ABI int32_t system_status(unsigned char *status) {
     memset(status,0,12); /* event_num=0, no overlay, foreground, normal CPU mode */
     return 0;
 }
-static ABI int32_t system_event(void *event) { (void)event; return SYSTEM_NO_EVENT; }
+static ABI int32_t system_event(void *event) {
+    (void)event;
+    if (getenv("SPARTAN_SYSDBG")) fprintf(stderr,"[SYS] ReceiveEvent\n");
+    return SYSTEM_NO_EVENT;
+}
 static ABI int32_t hide_splash(void) { note("SystemService: splash screen hidden"); return 0; }
 static ABI int32_t safe_area(float *info) { if (!info) return SYSTEM_PARAMETER; *info=1.0f; return 0; } /* full screen */
 static ABI int32_t disable_music_player(void) { return 0; }

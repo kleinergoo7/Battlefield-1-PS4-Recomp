@@ -70,72 +70,6 @@ static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q#
 
 static ABI int64_t bf1_jsc_noop(void) { return 0; } /* NULL-safe JSStringRelease */
 
-/* Diagnostic wrappers around real linked JSC exports. They call the real function
- * directly (no re-resolution) after logging the interesting arguments/results. */
-typedef void *(ABI *JscEval)(void *,void *,void *,void *,int,void **);
-typedef size_t (ABI *JscGetUtf8)(void *,char *,size_t);
-typedef void *(ABI *JscToString)(void *,void *,void **);
-typedef int (ABI *JscGetType)(void *);
-typedef int (ABI *JscIsUndef)(void *);
-typedef void *(ABI *JscStrCreate)(const char *);
-typedef void *(ABI *JscGetProp)(void *,void *,void *,void **);
-static uintptr_t jsc_real(uint64_t offset) { return probe_image_base()+offset; }
-
-static void jsc_dump_exception(void *ctx,void *exc) {
-    if (!exc) return;
-    JscGetType gt=(JscGetType)jsc_real(0x5133380);
-    JscStrCreate sc=(JscStrCreate)jsc_real(0x5132d60);
-    JscGetProp gp=(JscGetProp)jsc_real(0x512e200);
-    JscToString ts=(JscToString)jsc_real(0x5134c50);
-    JscGetUtf8 gu=(JscGetUtf8)jsc_real(0x5133180);
-    fprintf(stderr,"[JSDBG] exception value=%p type=%d\n",exc,gt(exc));
-    void *msgkey=sc("message"); void *subexc=NULL;
-    void *msg=gp(ctx,exc,msgkey,&subexc);
-    fprintf(stderr,"[JSDBG] exception.message=%p subexc=%p\n",msg,subexc);
-    if (msg) {
-        void *s=ts(ctx,msg,&subexc);
-        if (s) { char buf[512]; size_t n=gu(s,buf,sizeof(buf)-1); buf[n<sizeof(buf)-1?n:sizeof(buf)-1]=0;
-                 fprintf(stderr,"[JSDBG] exception message='%s'\n",buf); }
-    }
-}
-
-static void *(ABI jsc_eval)(void *ctx,void *script,void *thisobj,void *url,int line,void **exc) {
-    static JscEval real;
-    if (!real) real=(JscEval)jsc_real(0x5121180);
-    fprintf(stderr,"[JSDBG] JSEvaluateScript ctx=%p script=%p url=%p line=%d exc=%p\n",ctx,script,url,line,exc);
-    void *r=real(ctx,script,thisobj,url,line,exc);
-    fprintf(stderr,"[JSDBG] JSEvaluateScript -> %p exc=%p\n",r,exc?*exc:NULL);
-    if (!r && exc && *exc) jsc_dump_exception(ctx,*exc);
-    return r;
-}
-static size_t (ABI jsc_getutf8)(void *s,char *buf,size_t max) {
-    static JscGetUtf8 real;
-    if (!real) real=(JscGetUtf8)jsc_real(0x5133180);
-    size_t n=real(s,buf,max);
-    fprintf(stderr,"[JSDBG] JSStringGetUTF8CString -> %zu '%.*s'\n",n,(int)(n<120?n:120),buf?buf:"");
-    return n;
-}
-static void *(ABI jsc_tostring)(void *ctx,void *value,void **exc) {
-    static JscToString real;
-    if (!real) real=(JscToString)jsc_real(0x5134c50);
-    void *r=real(ctx,value,exc);
-    fprintf(stderr,"[JSDBG] JSValueToStringCopy value=%p -> %p exc=%p\n",value,r,exc?*exc:NULL);
-    return r;
-}
-static int (ABI jsc_gettype)(void *v) {
-    static JscGetType real;
-    if (!real) real=(JscGetType)jsc_real(0x5133380);
-    int t=real(v);
-    fprintf(stderr,"[JSDBG] JSValueGetType %p -> %d\n",v,t);
-    return t;
-}
-static int (ABI jsc_isundef)(void *v) {
-    static JscIsUndef real;
-    if (!real) real=(JscIsUndef)jsc_real(0x51334c0);
-    int t=real(v);
-    fprintf(stderr,"[JSDBG] JSValueIsUndefined %p -> %d\n",v,t);
-    return t;
-}
 static void bf1_dummy_virtual(void) {}
 static void *bf1_dummy_vtable[] = {
     bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
@@ -331,13 +265,6 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
         return (uintptr_t)bf1_buildinfo_singleton;
     /* JSStringRelease receives NULL when JSValueToStringCopy fails; shadPS4's
      * stub is a no-op, so make it NULL-safe even with real JSC exports active. */
-    if (getenv("SPARTAN_JSDBG") && name) {
-        if (!strcmp(name,"YssF41MWxCU#libJavaScriptCore")) return (uintptr_t)jsc_eval;
-        if (!strcmp(name,"NqV8ddwLaiY#libJavaScriptCore")) return (uintptr_t)jsc_getutf8;
-        if (!strcmp(name,"9bSDYmkp-Vw#libJavaScriptCore")) return (uintptr_t)jsc_tostring;
-        if (!strcmp(name,"g8-wnopz0jE#libJavaScriptCore")) return (uintptr_t)jsc_gettype;
-        if (!strcmp(name,"BZx2PqN5SsE#libJavaScriptCore")) return (uintptr_t)jsc_isundef;
-    }
     if (name && !strcmp(name,"Nm-U+BAjCkY#libJavaScriptCore")) return (uintptr_t)bf1_jsc_noop;
     /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs. */
     if (getenv("SPARTAN_NO_JSC_STUBS") && name &&
