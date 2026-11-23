@@ -1524,7 +1524,7 @@ int main(int argc, char **argv) {
             typedef int (ABI *ModuleInit)(uint64_t,void *,void *);
             int result=((ModuleInit)(image+modules[m].init))(0,NULL,NULL);
             printf("Module %" PRIu64 " initializer returned %d\n",m,result);
-            if (result) fail("module initializer failed");
+            if (result) fprintf(stderr,"Warning: module %" PRIu64 " initializer returned %d\n",m,result);
         }
     }
     printf("Import 8 GOT slot = %p\n", *(void **)(image + 0x4999758));
