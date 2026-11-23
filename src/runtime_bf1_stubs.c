@@ -2,6 +2,7 @@
 #include "runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static char bf1_dummy_object[256];
 static ABI int64_t bf1_zero_stub(void) { return 0; }
@@ -1268,5 +1269,7 @@ static const RuntimeExport exports[] = {
 };
 
 uintptr_t runtime_bf1_stubs_resolve(const char *name) {
+    /* Let the real linked JavaScriptCore exports win when the PRX is loaded. */
+    if (getenv("SPARTAN_NO_JSC_STUBS") && name && strstr(name,"JavaScriptCore")) return 0;
     return RUNTIME_LOOKUP(exports, name);
 }

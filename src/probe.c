@@ -44,6 +44,21 @@ typedef struct { uint64_t target, kind, value, addend; } Reloc;
 static char (*names)[128];
 static uint64_t import_count;
 static unsigned char *image;
+/* Deferred module_start for pre-linked PRXs that the game loads at run time. */
+static uint64_t deferred_init[8];
+void probe_set_deferred_init(int index, uint64_t offset) { deferred_init[index] = offset; }
+int probe_start_deferred(int index) {
+    if (index < 0 || index >= (int)(sizeof(deferred_init)/sizeof(deferred_init[0])) || !deferred_init[index]) return -1;
+    uint64_t offset = deferred_init[index];
+    deferred_init[index] = 0;
+    typedef int (ABI *ModuleInit)(uint64_t, void *, void *);
+    printf("Runtime: starting deferred module %d at image offset 0x%llx\n", index, (unsigned long long)offset);
+    fflush(stdout);
+    int result = ((ModuleInit)(image + offset))(0, NULL, NULL);
+    printf("Runtime: deferred module %d initializer returned %d\n", index, result);
+    fflush(stdout);
+    return result;
+}
 static size_t page_size;
 typedef struct { uint64_t base, size, init, tls_address, tls_memsz, tls_filesz, tls_module; } LinkedModule;
 static LinkedModule modules[16];
@@ -1520,6 +1535,12 @@ int main(int argc, char **argv) {
         runtime_set_procparam(image+procparam);
         /* Dependencies start in link order (libc first), as the PS4 dynamic linker does. */
         for (uint64_t m=0;m<module_count;++m) {
+            /* JSC/EAWebKit initialize only when the game asks for them, like shadPS4. */
+            if (getenv("SPARTAN_DEFER_MODULES") && (m==3 || m==4)) {
+                probe_set_deferred_init((int)m,modules[m].init);
+                printf("Deferred linked module %" PRIu64 " at image offset 0x%" PRIx64 "\n",m,modules[m].init);
+                continue;
+            }
             printf("Starting linked module %" PRIu64 " at image offset 0x%" PRIx64 "; native bindings=%" PRIu64 "\n",m,modules[m].init,nb);
             typedef int (ABI *ModuleInit)(uint64_t,void *,void *);
             int result=((ModuleInit)(image+modules[m].init))(0,NULL,NULL);

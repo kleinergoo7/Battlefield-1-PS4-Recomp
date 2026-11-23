@@ -261,6 +261,9 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "EXv3ztGqtDM#libkernel")) return (uintptr_t)mutexattr_setpshared;
     if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail"))
         return (uintptr_t)bf1_buildinfo_singleton;
+    /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs. */
+    if (getenv("SPARTAN_NO_JSC_STUBS") && name &&
+        (strstr(name,"libJavaScriptCore") || strstr(name,"EAWebKit"))) return 0;
     if (!strcmp(name, "2uT9ySAHVKE#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_0;
     if (!strcmp(name, "4XQM-UBEYpM#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_1;
     if (!strcmp(name, "7EUw1e-hbNY#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_2;
