@@ -18,7 +18,8 @@ import struct
 from prepare import parse_self, read_self, span, unpack
 from link_libc import encode_id
 
-DEFAULT_MODULES = ('libc.prx', 'libSceFios2.prx', 'Engine.BuildInfo_gen4b_retail.prx')
+DEFAULT_MODULES = ('libc.prx', 'libSceFios2.prx', 'Engine.BuildInfo_gen4b_retail.prx',
+                   'JavaScriptCore.prx', 'EAWebKit.prx')
 HOST_OVERRIDES = {
     'LwG8g3niqwA',  # sceKernelDlsym
     'BpFoboUJoZU',  # sceKernelCreateEventFlag
