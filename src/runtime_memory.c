@@ -589,7 +589,20 @@ static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t 
     uintptr_t address=(uintptr_t)*inout;
     if (flags & MAP_FIXED_FLAG) {
         if (!address || address%PAGE) return INVALID;
-        if ((flags & MAP_NO_OVERWRITE) && overlaps(address,address+size,1)) return NO_MEMORY;
+        if ((flags & MAP_NO_OVERWRITE) && overlaps(address,address+size,1)) {
+            /* A direct-memory grow-remap passes the old base with NO_OVERWRITE;
+             * treat an existing direct mapping at that exact base as replaceable. */
+            int same_base_direct = (flags & MAP_FIXED_FLAG) && kind == KIND_DIRECT;
+            if (same_base_direct) {
+                for (size_t i = vma_index(address); i < vma_count && vmas[i].start < address + size; ++i) {
+                    if (vmas[i].start < address || vmas[i].kind != KIND_DIRECT) {
+                        same_base_direct = 0;
+                        break;
+                    }
+                }
+            }
+            if (!same_base_direct) return NO_MEMORY;
+        }
         if (foreign_overlap(address,address+size)) return NO_MEMORY;
     } else {
         address=find_free(address,size,alignment);
@@ -748,6 +761,9 @@ static ABI int32_t direct_map(void **out, uint64_t size, int prot, int flags, in
         *out=address;
         printf("Runtime: mapped direct memory %p, size=%" PRIu64 ", prot=0x%x%s\n", address, size, prot,
                replaced ? " (over a mapping)" : "");
+    } else {
+        fprintf(stderr,"Runtime: direct map of %p size %" PRIu64 " prot=0x%x flags=0x%x phys=%lld failed (0x%x)\n",
+                fixed,size,prot,flags,(long long)physical,(unsigned)result);
     }
     return result;
 }
