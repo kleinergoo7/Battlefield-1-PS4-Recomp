@@ -98,7 +98,7 @@ static void *(ABI jsc_handlecall)(void *ctx,void *fn_obj,void *self,size_t argc,
     }
     void *r=jsc_real_cb ? jsc_real_cb(ctx,fn_obj,self,argc,argv,exc) : NULL;
     fprintf(stderr,"[HCALL] -> %p\n",r);
-    if (r && jsc_getprop && jsc_strcreate && jsc_tostring && jsc_utf8) {
+    if (getenv("SPARTAN_BINFO") && r && jsc_getprop && jsc_strcreate && jsc_tostring && jsc_utf8) {
         const char *keys[]={"branchName","changeListNumber","env","buildId","version","envBranchName"};
         for (unsigned k=0;k<sizeof(keys)/sizeof(keys[0]);++k) {
             void *key=jsc_strcreate(keys[k]);
@@ -317,7 +317,12 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "PI7jIZj4pcE#libSceRandom")) return (uintptr_t)random_bytes;
     if (!strcmp(name, "LwG8g3niqwA#libkernel")) return (uintptr_t)bf1_dlsym;
     if (!strcmp(name, "EXv3ztGqtDM#libkernel")) return (uintptr_t)mutexattr_setpshared;
-    if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail"))
+    /* The real Engine.BuildInfo PRX is linked now; fall through to the native
+     * binding so the game gets a real build-info object with a populated
+     * env.branchName ("Tunguska"). The dummy singleton was a bringup-era
+     * stopgap that made getBuildInfoSync return all-undefined fields. */
+    if (getenv("SPARTAN_BUILDINFO_DUMMY") &&
+        !strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail"))
         return (uintptr_t)bf1_buildinfo_singleton;
     /* JSStringRelease receives NULL when JSValueToStringCopy fails; shadPS4's
      * stub is a no-op, so make it NULL-safe even with real JSC exports active. */
@@ -344,7 +349,8 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "LuHdTFPohDE#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_7;
     if (!strcmp(name, "O8DunroJtKc#libJavaScriptCore")) return (uintptr_t)bf1_unknown_8;
     if (!strcmp(name, "Soq7bosBHpo#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_9;
-    if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail")) return (uintptr_t)bf1_unknown_10;
+    if (getenv("SPARTAN_BUILDINFO_DUMMY") &&
+        !strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail")) return (uintptr_t)bf1_unknown_10;
     if (!strcmp(name, "Zd-z5tJxpJw#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_11;
     if (!strcmp(name, "fJgP+wqifno#libSceDiscMap")) return (uintptr_t)bf1_unknown_12;
     if (!strcmp(name, "mgjWUOKHkJg#libJavaScriptCore")) return (uintptr_t)bf1_unknown_13;
