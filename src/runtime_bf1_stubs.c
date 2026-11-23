@@ -3,632 +3,636 @@
 #include "runtime.h"
 #include <stdio.h>
 
-static ABI int64_t bf1_stub_0(void) { printf("BF1 stub: %s\n", "sceGnmSetEmbeddedVsShader"); return 0; }
-static ABI int64_t bf1_stub_1(void) { printf("BF1 stub: %s\n", "scePthreadSetspecific"); return 0; }
-static ABI int64_t bf1_stub_2(void) { printf("BF1 stub: %s\n", "scePthreadRwlockUnlock"); return 0; }
-static ABI int64_t bf1_stub_3(void) { printf("BF1 stub: %s\n", "sceKernelPread"); return 0; }
-static ABI int64_t bf1_stub_4(void) { printf("BF1 stub: %s\n", "sceGnmSetupMipStatsReport"); return 0; }
-static ABI int64_t bf1_stub_5(void) { printf("BF1 stub: %s\n", "sceKernelReadTsc"); return 0; }
-static ABI int64_t bf1_stub_6(void) { printf("BF1 stub: %s\n", "sceNpPartyShowInvitationList"); return 0; }
-static ABI int64_t bf1_stub_7(void) { printf("BF1 stub: %s\n", "scePlayGoGetProgress"); return 0; }
-static ABI int64_t bf1_stub_8(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetdetachstate"); return 0; }
-static ABI int64_t bf1_stub_9(void) { printf("BF1 stub: %s\n", "sceKernelInternalMemoryGetModuleSegmentInfo"); return 0; }
-static ABI int64_t bf1_stub_10(void) { printf("BF1 stub: %s\n", "sceKernelSleep"); return 0; }
-static ABI int64_t bf1_stub_11(void) { printf("BF1 stub: %s\n", "scePthreadAttrGetstacksize"); return 0; }
-static ABI int64_t bf1_stub_12(void) { printf("BF1 stub: %s\n", "sceKernelConvertUtcToLocaltime"); return 0; }
-static ABI int64_t bf1_stub_13(void) { printf("BF1 stub: %s\n", "sceAjmBatchWait"); return 0; }
-static ABI int64_t bf1_stub_14(void) { printf("BF1 stub: %s\n", "scePthreadAttrGetstack"); return 0; }
-static ABI int64_t bf1_stub_15(void) { printf("BF1 stub: %s\n", "sceGnmDispatchDirect"); return 0; }
-static ABI int64_t bf1_stub_16(void) { printf("BF1 stub: %s\n", "sceKernelUtimes"); return 0; }
-static ABI int64_t bf1_stub_17(void) { printf("BF1 stub: %s\n", "sceSslTerm"); return 0; }
-static ABI int64_t bf1_stub_18(void) { printf("BF1 stub: %s\n", "sceKernelConvertLocaltimeToUtc"); return 0; }
-static ABI int64_t bf1_stub_19(void) { printf("BF1 stub: %s\n", "sceNpProfileDialogTerminate"); return 0; }
-static ABI int64_t bf1_stub_20(void) { printf("BF1 stub: %s\n", "pthread_cond_init"); return 0; }
-static ABI int64_t bf1_stub_21(void) { printf("BF1 stub: %s\n", "sceNpCommerceDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_22(void) { printf("BF1 stub: %s\n", "sceNetCtlGetResult"); return 0; }
-static ABI int64_t bf1_stub_23(void) { printf("BF1 stub: %s\n", "JSValueMakeString"); return 0; }
-static ABI int64_t bf1_stub_24(void) { printf("BF1 stub: %s\n", "sceSaveDataMount2"); return 0; }
-static ABI int64_t bf1_stub_25(void) { printf("BF1 stub: %s\n", "sceInvitationDialogOpen"); return 0; }
-static ABI int64_t bf1_stub_26(void) { printf("BF1 stub: %s\n", "sceKernelMkdir"); return 0; }
-static ABI int64_t bf1_stub_27(void) { printf("BF1 stub: %s\n", "sceKernelPollSema"); return 0; }
-static ABI int64_t bf1_stub_28(void) { printf("BF1 stub: %s\n", "scePthreadOnce"); return 0; }
-static ABI int64_t bf1_stub_29(void) { printf("BF1 stub: %s\n", "sceKernelCreateSema"); return 0; }
-static ABI int64_t bf1_stub_30(void) { printf("BF1 stub: %s\n", "sceRtcGetCurrentTick"); return 0; }
-static ABI int64_t bf1_stub_31(void) { printf("BF1 stub: %s\n", "scePthreadMutexattrSetprotocol"); return 0; }
-static ABI int64_t bf1_stub_32(void) { printf("BF1 stub: %s\n", "sceKernelOpen"); return 0; }
-static ABI int64_t bf1_stub_33(void) { printf("BF1 stub: %s\n", "sceAudio3dObjectUnreserve"); return 0; }
-static ABI int64_t bf1_stub_34(void) { printf("BF1 stub: %s\n", "sceSystemGestureAppendTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_35(void) { printf("BF1 stub: %s\n", "sceKernelGetTscFrequency"); return 0; }
-static ABI int64_t bf1_stub_36(void) { printf("BF1 stub: %s\n", "sceKernelUsleep"); return 0; }
-static ABI int64_t bf1_stub_37(void) { printf("BF1 stub: %s\n", "sceSystemServiceGetDisplaySafeAreaInfo"); return 0; }
-static ABI int64_t bf1_stub_38(void) { printf("BF1 stub: %s\n", "sceGnmInsertWaitFlipDone"); return 0; }
-static ABI int64_t bf1_stub_39(void) { printf("BF1 stub: %s\n", "scePthreadGetprio"); return 0; }
-static ABI int64_t bf1_stub_40(void) { printf("BF1 stub: %s\n", "sceUserServiceGetUserName"); return 0; }
-static ABI int64_t bf1_stub_41(void) { printf("BF1 stub: %s\n", "sceGnmLogicalCuIndexToPhysicalCuIndex"); return 0; }
-static ABI int64_t bf1_stub_42(void) { printf("BF1 stub: %s\n", "pthread_cond_timedwait"); return 0; }
-static ABI int64_t bf1_stub_43(void) { printf("BF1 stub: %s\n", "sceNpTrophyUnlockTrophy"); return 0; }
-static ABI int64_t bf1_stub_44(void) { printf("BF1 stub: %s\n", "sceGnmMapComputeQueue"); return 0; }
-static ABI int64_t bf1_stub_45(void) { printf("BF1 stub: %s\n", "sceNpFriendListDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_46(void) { printf("BF1 stub: %s\n", "pthread_cond_signal"); return 0; }
-static ABI int64_t bf1_stub_47(void) { printf("BF1 stub: %s\n", "scePthreadMutexDestroy"); return 0; }
-static ABI int64_t bf1_stub_48(void) { printf("BF1 stub: %s\n", "pthread_attr_setstacksize"); return 0; }
-static ABI int64_t bf1_stub_49(void) { printf("BF1 stub: %s\n", "sceKernelBatchMap"); return 0; }
-static ABI int64_t bf1_stub_50(void) { printf("BF1 stub: %s\n", "scePthreadCondInit"); return 0; }
-static ABI int64_t bf1_stub_51(void) { printf("BF1 stub: %s\n", "pthread_mutex_unlock"); return 0; }
-static ABI int64_t bf1_stub_52(void) { printf("BF1 stub: %s\n", "sceNpWebApiUnregisterServicePushEventCallback"); return 0; }
-static ABI int64_t bf1_stub_53(void) { printf("BF1 stub: %s\n", "sceNetSetsockopt"); return 0; }
-static ABI int64_t bf1_stub_54(void) { printf("BF1 stub: %s\n", "sceNpCheckNpAvailability"); return 0; }
-static ABI int64_t bf1_stub_55(void) { printf("BF1 stub: %s\n", "sceScreenShotEnable"); return 0; }
-static ABI int64_t bf1_stub_56(void) { printf("BF1 stub: %s\n", "sceNetRecvfrom"); return 0; }
-static ABI int64_t bf1_stub_57(void) { printf("BF1 stub: %s\n", "scePlayGoGetLanguageMask"); return 0; }
-static ABI int64_t bf1_stub_58(void) { printf("BF1 stub: %s\n", "scePthreadEqual"); return 0; }
-static ABI int64_t bf1_stub_59(void) { printf("BF1 stub: %s\n", "sceSystemGestureFinalizePrimitiveTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_60(void) { printf("BF1 stub: %s\n", "sceNpCheckCallback"); return 0; }
-static ABI int64_t bf1_stub_61(void) { printf("BF1 stub: %s\n", "accept"); return 0; }
-static ABI int64_t bf1_stub_62(void) { printf("BF1 stub: %s\n", "sceNpPartyCheckCallback"); return 0; }
-static ABI int64_t bf1_stub_63(void) { printf("BF1 stub: %s\n", "sceKernelMlock"); return 0; }
-static ABI int64_t bf1_stub_64(void) { printf("BF1 stub: %s\n", "scePthreadExit"); return 0; }
-static ABI int64_t bf1_stub_65(void) { printf("BF1 stub: %s\n", "sceSystemGestureInitializePrimitiveTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_66(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetaffinity"); return 0; }
-static ABI int64_t bf1_stub_67(void) { printf("BF1 stub: %s\n", "sceAppContentAddcontUnmount"); return 0; }
-static ABI int64_t bf1_stub_68(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetschedpolicy"); return 0; }
-static ABI int64_t bf1_stub_69(void) { printf("BF1 stub: %s\n", "sceNetSocketClose"); return 0; }
-static ABI int64_t bf1_stub_70(void) { printf("BF1 stub: %s\n", "scePlayGoSetInstallSpeed"); return 0; }
-static ABI int64_t bf1_stub_71(void) { printf("BF1 stub: %s\n", "sceKernelCancelSema"); return 0; }
-static ABI int64_t bf1_stub_72(void) { printf("BF1 stub: %s\n", "sceKernelGetProcessTime"); return 0; }
-static ABI int64_t bf1_stub_73(void) { printf("BF1 stub: %s\n", "sceKernelSignalSema"); return 0; }
-static ABI int64_t bf1_stub_74(void) { printf("BF1 stub: %s\n", "scePthreadDetach"); return 0; }
-static ABI int64_t bf1_stub_75(void) { printf("BF1 stub: %s\n", "sceSaveDataDialogOpen"); return 0; }
-static ABI int64_t bf1_stub_76(void) { printf("BF1 stub: %s\n", "sceAudio3dObjectSetAttributes"); return 0; }
-static ABI int64_t bf1_stub_77(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndirect"); return 0; }
-static ABI int64_t bf1_stub_78(void) { printf("BF1 stub: %s\n", "sceKernelWrite"); return 0; }
-static ABI int64_t bf1_stub_79(void) { printf("BF1 stub: %s\n", "sceKernelRename"); return 0; }
-static ABI int64_t bf1_stub_80(void) { printf("BF1 stub: %s\n", "sceVoiceStart"); return 0; }
-static ABI int64_t bf1_stub_81(void) { printf("BF1 stub: %s\n", "sceNpWebApiDeleteHandle"); return 0; }
-static ABI int64_t bf1_stub_82(void) { printf("BF1 stub: %s\n", "sceAudioInOpen"); return 0; }
-static ABI int64_t bf1_stub_83(void) { printf("BF1 stub: %s\n", "sceGnmValidateGetDiagnostics"); return 0; }
-static ABI int64_t bf1_stub_84(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndexIndirectMulti"); return 0; }
-static ABI int64_t bf1_stub_85(void) { printf("BF1 stub: %s\n", "sceGnmSetPsShader350"); return 0; }
-static ABI int64_t bf1_stub_86(void) { printf("BF1 stub: %s\n", "sceGnmCreateWorkloadStream"); return 0; }
-static ABI int64_t bf1_stub_87(void) { printf("BF1 stub: %s\n", "scePthreadAttrDestroy"); return 0; }
-static ABI int64_t bf1_stub_88(void) { printf("BF1 stub: %s\n", "sceSystemServiceReceiveEvent"); return 0; }
-static ABI int64_t bf1_stub_89(void) { printf("BF1 stub: %s\n", "sceNetGetMacAddress"); return 0; }
-static ABI int64_t bf1_stub_90(void) { printf("BF1 stub: %s\n", "scePthreadRwlockInit"); return 0; }
-static ABI int64_t bf1_stub_91(void) { printf("BF1 stub: %s\n", "scePthreadCreate"); return 0; }
-static ABI int64_t bf1_stub_92(void) { printf("BF1 stub: %s\n", "sched_yield"); return 0; }
-static ABI int64_t bf1_stub_93(void) { printf("BF1 stub: %s\n", "sceGnmRequestFlipAndSubmitDoneForWorkload"); return 0; }
-static ABI int64_t bf1_stub_94(void) { printf("BF1 stub: %s\n", "_exit"); return 0; }
-static ABI int64_t bf1_stub_95(void) { printf("BF1 stub: %s\n", "sceMsgDialogUpdateStatus"); return 0; }
-static ABI int64_t bf1_stub_96(void) { printf("BF1 stub: %s\n", "sceVideoOutGetResolutionStatus"); return 0; }
-static ABI int64_t bf1_stub_97(void) { printf("BF1 stub: %s\n", "scePadClose"); return 0; }
-static ABI int64_t bf1_stub_98(void) { printf("BF1 stub: %s\n", "_sigprocmask"); return 0; }
-static ABI int64_t bf1_stub_99(void) { printf("BF1 stub: %s\n", "sceNpWebApiCreateHandle"); return 0; }
-static ABI int64_t bf1_stub_100(void) { printf("BF1 stub: %s\n", "pthread_mutex_lock"); return 0; }
-static ABI int64_t bf1_stub_101(void) { printf("BF1 stub: %s\n", "pthread_equal"); return 0; }
-static ABI int64_t bf1_stub_102(void) { printf("BF1 stub: %s\n", "sceGnmInsertPopMarker"); return 0; }
-static ABI int64_t bf1_stub_103(void) { printf("BF1 stub: %s\n", "sceKernelClearEventFlag"); return 0; }
-static ABI int64_t bf1_stub_104(void) { printf("BF1 stub: %s\n", "scePthreadAttrGetaffinity"); return 0; }
-static ABI int64_t bf1_stub_105(void) { printf("BF1 stub: %s\n", "sceNpLookupCreateTitleCtx"); return 0; }
-static ABI int64_t bf1_stub_106(void) { printf("BF1 stub: %s\n", "sceSaveDataSetParam"); return 0; }
-static ABI int64_t bf1_stub_107(void) { printf("BF1 stub: %s\n", "sceNetInetPton"); return 0; }
-static ABI int64_t bf1_stub_108(void) { printf("BF1 stub: %s\n", "JSGlobalContextCreate"); return 0; }
-static ABI int64_t bf1_stub_109(void) { printf("BF1 stub: %s\n", "sceInvitationDialogGetResult"); return 0; }
-static ABI int64_t bf1_stub_110(void) { printf("BF1 stub: %s\n", "sceGnmDrawInitToDefaultContextState"); return 0; }
-static ABI int64_t bf1_stub_111(void) { printf("BF1 stub: %s\n", "sceKernelDeleteEventFlag"); return 0; }
-static ABI int64_t bf1_stub_112(void) { printf("BF1 stub: %s\n", "fcntl"); return 0; }
-static ABI int64_t bf1_stub_113(void) { printf("BF1 stub: %s\n", "sceCoredumpRegisterCoredumpHandler"); return 0; }
-static ABI int64_t bf1_stub_114(void) { printf("BF1 stub: %s\n", "sceInvitationDialogUpdateStatus"); return 0; }
-static ABI int64_t bf1_stub_115(void) { printf("BF1 stub: %s\n", "sceKernelGetProcParam"); return 0; }
-static ABI int64_t bf1_stub_116(void) { printf("BF1 stub: %s\n", "sceAppContentAppParamGetInt"); return 0; }
-static ABI int64_t bf1_stub_117(void) { printf("BF1 stub: %s\n", "__error"); return 0; }
-static ABI int64_t bf1_stub_118(void) { printf("BF1 stub: %s\n", "sceVoiceInit"); return 0; }
-static ABI int64_t bf1_stub_119(void) { printf("BF1 stub: %s\n", "scePthreadMutexLock"); return 0; }
-static ABI int64_t bf1_stub_120(void) { printf("BF1 stub: %s\n", "JSValueToStringCopy"); return 0; }
-static ABI int64_t bf1_stub_121(void) { printf("BF1 stub: %s\n", "sceNetInetNtop"); return 0; }
-static ABI int64_t bf1_stub_122(void) { printf("BF1 stub: %s\n", "sceNetRecv"); return 0; }
-static ABI int64_t bf1_stub_123(void) { printf("BF1 stub: %s\n", "sceGameLiveStreamingTerminate"); return 0; }
-static ABI int64_t bf1_stub_124(void) { printf("BF1 stub: %s\n", "sceGnmMapComputeQueueWithPriority"); return 0; }
-static ABI int64_t bf1_stub_125(void) { printf("BF1 stub: %s\n", "sceNpSetContentRestriction"); return 0; }
-static ABI int64_t bf1_stub_126(void) { printf("BF1 stub: %s\n", "sceHttpInit"); return 0; }
-static ABI int64_t bf1_stub_127(void) { printf("BF1 stub: %s\n", "sceKernelUnlink"); return 0; }
-static ABI int64_t bf1_stub_128(void) { printf("BF1 stub: %s\n", "JSPropertyNameArrayGetNameAtIndex"); return 0; }
-static ABI int64_t bf1_stub_129(void) { printf("BF1 stub: %s\n", "sceVoiceStop"); return 0; }
-static ABI int64_t bf1_stub_130(void) { printf("BF1 stub: %s\n", "sceGnmUnmapComputeQueue"); return 0; }
-static ABI int64_t bf1_stub_131(void) { printf("BF1 stub: %s\n", "sceAjmInstanceCreate"); return 0; }
-static ABI int64_t bf1_stub_132(void) { printf("BF1 stub: %s\n", "sceNetResolverAbort"); return 0; }
-static ABI int64_t bf1_stub_133(void) { printf("BF1 stub: %s\n", "sceFiberReturnToThread"); return 0; }
-static ABI int64_t bf1_stub_134(void) { printf("BF1 stub: %s\n", "pthread_yield"); return 0; }
-static ABI int64_t bf1_stub_135(void) { printf("BF1 stub: %s\n", "sceInvitationDialogTerminate"); return 0; }
-static ABI int64_t bf1_stub_136(void) { printf("BF1 stub: %s\n", "scePthreadRwlockDestroy"); return 0; }
-static ABI int64_t bf1_stub_137(void) { printf("BF1 stub: %s\n", "sceKernelGetDirectMemoryType"); return 0; }
-static ABI int64_t bf1_stub_138(void) { printf("BF1 stub: %s\n", "sceSaveDataUmount"); return 0; }
-static ABI int64_t bf1_stub_139(void) { printf("BF1 stub: %s\n", "mmap"); return 0; }
-static ABI int64_t bf1_stub_140(void) { printf("BF1 stub: %s\n", "sceCommonDialogIsUsed"); return 0; }
-static ABI int64_t bf1_stub_141(void) { printf("BF1 stub: %s\n", "JSValueIsUndefined"); return 0; }
-static ABI int64_t bf1_stub_142(void) { printf("BF1 stub: %s\n", "scePthreadCondTimedwait"); return 0; }
-static ABI int64_t bf1_stub_143(void) { printf("BF1 stub: %s\n", "sceKernelCreateEventFlag"); return 0; }
-static ABI int64_t bf1_stub_144(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetstack"); return 0; }
-static ABI int64_t bf1_stub_145(void) { printf("BF1 stub: %s\n", "sceKernelAvailableDirectMemorySize"); return 0; }
-static ABI int64_t bf1_stub_146(void) { printf("BF1 stub: %s\n", "sceNetResolverCreate"); return 0; }
-static ABI int64_t bf1_stub_147(void) { printf("BF1 stub: %s\n", "sceVideoOutSetFlipRate"); return 0; }
-static ABI int64_t bf1_stub_148(void) { printf("BF1 stub: %s\n", "sceNpWebApiReadData"); return 0; }
-static ABI int64_t bf1_stub_149(void) { printf("BF1 stub: %s\n", "sceMsgDialogGetStatus"); return 0; }
-static ABI int64_t bf1_stub_150(void) { printf("BF1 stub: %s\n", "sceUserServiceGetInitialUser"); return 0; }
-static ABI int64_t bf1_stub_151(void) { printf("BF1 stub: %s\n", "sceKernelRead"); return 0; }
-static ABI int64_t bf1_stub_152(void) { printf("BF1 stub: %s\n", "sceGameLiveStreamingGetCurrentStatus"); return 0; }
-static ABI int64_t bf1_stub_153(void) { printf("BF1 stub: %s\n", "sceVoiceGetPortInfo"); return 0; }
-static ABI int64_t bf1_stub_154(void) { printf("BF1 stub: %s\n", "sceKernelCreateEqueue"); return 0; }
-static ABI int64_t bf1_stub_155(void) { printf("BF1 stub: %s\n", "JSStringGetMaximumUTF8CStringSize"); return 0; }
-static ABI int64_t bf1_stub_156(void) { printf("BF1 stub: %s\n", "sceNpCommerceShowPsStoreIcon"); return 0; }
-static ABI int64_t bf1_stub_157(void) { printf("BF1 stub: %s\n", "sceNpPartyGetId"); return 0; }
-static ABI int64_t bf1_stub_158(void) { printf("BF1 stub: %s\n", "_read"); return 0; }
-static ABI int64_t bf1_stub_159(void) { printf("BF1 stub: %s\n", "sceCoredumpWriteUserData"); return 0; }
-static ABI int64_t bf1_stub_160(void) { printf("BF1 stub: %s\n", "sceNpCommerceDialogOpen"); return 0; }
-static ABI int64_t bf1_stub_161(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetschedparam"); return 0; }
-static ABI int64_t bf1_stub_162(void) { printf("BF1 stub: %s\n", "pthread_attr_setdetachstate"); return 0; }
-static ABI int64_t bf1_stub_163(void) { printf("BF1 stub: %s\n", "sceNpTrophyDestroyContext"); return 0; }
-static ABI int64_t bf1_stub_164(void) { printf("BF1 stub: %s\n", "sceNpFriendListDialogTerminate"); return 0; }
-static ABI int64_t bf1_stub_165(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndexIndirect"); return 0; }
-static ABI int64_t bf1_stub_166(void) { printf("BF1 stub: %s\n", "sceSystemGestureRemoveTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_167(void) { printf("BF1 stub: %s\n", "sceSaveDataDialogGetStatus"); return 0; }
-static ABI int64_t bf1_stub_168(void) { printf("BF1 stub: %s\n", "pthread_mutexattr_setpshared"); return 0; }
-static ABI int64_t bf1_stub_169(void) { printf("BF1 stub: %s\n", "sceNpSetNpTitleId"); return 0; }
-static ABI int64_t bf1_stub_170(void) { printf("BF1 stub: %s\n", "sceAjmBatchJobRunBufferRa"); return 0; }
-static ABI int64_t bf1_stub_171(void) { printf("BF1 stub: %s\n", "pthread_self"); return 0; }
-static ABI int64_t bf1_stub_172(void) { printf("BF1 stub: %s\n", "recv"); return 0; }
-static ABI int64_t bf1_stub_173(void) { printf("BF1 stub: %s\n", "sceNpPartyGetMemberInfo"); return 0; }
-static ABI int64_t bf1_stub_174(void) { printf("BF1 stub: %s\n", "sceNpGetUserIdByOnlineId"); return 0; }
-static ABI int64_t bf1_stub_175(void) { printf("BF1 stub: %s\n", "scePthreadMutexattrInit"); return 0; }
-static ABI int64_t bf1_stub_176(void) { printf("BF1 stub: %s\n", "getargv"); return 0; }
-static ABI int64_t bf1_stub_177(void) { printf("BF1 stub: %s\n", "sceGnmSetEsShader"); return 0; }
-static ABI int64_t bf1_stub_178(void) { printf("BF1 stub: %s\n", "sceSystemGestureCreateTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_179(void) { printf("BF1 stub: %s\n", "sceGnmEndWorkload"); return 0; }
-static ABI int64_t bf1_stub_180(void) { printf("BF1 stub: %s\n", "sceVideoRecordingSetInfo"); return 0; }
-static ABI int64_t bf1_stub_181(void) { printf("BF1 stub: %s\n", "__elf_phdr_match_addr"); return 0; }
-static ABI int64_t bf1_stub_182(void) { printf("BF1 stub: %s\n", "_write"); return 0; }
-static ABI int64_t bf1_stub_183(void) { printf("BF1 stub: %s\n", "sceNpWebApiInitialize"); return 0; }
-static ABI int64_t bf1_stub_184(void) { printf("BF1 stub: %s\n", "scePthreadRename"); return 0; }
-static ABI int64_t bf1_stub_185(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndexAuto"); return 0; }
-static ABI int64_t bf1_stub_186(void) { printf("BF1 stub: %s\n", "sceNpTrophyDestroyHandle"); return 0; }
-static ABI int64_t bf1_stub_187(void) { printf("BF1 stub: %s\n", "sceGnmUpdateHsShader"); return 0; }
-static ABI int64_t bf1_stub_188(void) { printf("BF1 stub: %s\n", "sceGnmSubmitAndFlipCommandBuffersForWorkload"); return 0; }
-static ABI int64_t bf1_stub_189(void) { printf("BF1 stub: %s\n", "sceNpNotifyPlusFeature"); return 0; }
-static ABI int64_t bf1_stub_190(void) { printf("BF1 stub: %s\n", "sceSystemGestureUpdatePrimitiveTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_191(void) { printf("BF1 stub: %s\n", "sceNpGetAccountCountry"); return 0; }
-static ABI int64_t bf1_stub_192(void) { printf("BF1 stub: %s\n", "sceNpCreateRequest"); return 0; }
-static ABI int64_t bf1_stub_193(void) { printf("BF1 stub: %s\n", "sceGnmGetEqTimeStamp"); return 0; }
-static ABI int64_t bf1_stub_194(void) { printf("BF1 stub: %s\n", "sceNpAuthDeleteRequest"); return 0; }
-static ABI int64_t bf1_stub_195(void) { printf("BF1 stub: %s\n", "pthread_mutexattr_destroy"); return 0; }
-static ABI int64_t bf1_stub_196(void) { printf("BF1 stub: %s\n", "sceGnmDisableMipStatsReport"); return 0; }
-static ABI int64_t bf1_stub_197(void) { printf("BF1 stub: %s\n", "sceNetErrnoLoc"); return 0; }
-static ABI int64_t bf1_stub_198(void) { printf("BF1 stub: %s\n", "sceVideoOutAddFlipEvent"); return 0; }
-static ABI int64_t bf1_stub_199(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndex"); return 0; }
-static ABI int64_t bf1_stub_200(void) { printf("BF1 stub: %s\n", "sceGnmValidateGetVersion"); return 0; }
-static ABI int64_t bf1_stub_201(void) { printf("BF1 stub: %s\n", "sceImeDialogGetStatus"); return 0; }
-static ABI int64_t bf1_stub_202(void) { printf("BF1 stub: %s\n", "sceKernelSetEventFlag"); return 0; }
-static ABI int64_t bf1_stub_203(void) { printf("BF1 stub: %s\n", "sceKernelMapFlexibleMemory"); return 0; }
-static ABI int64_t bf1_stub_204(void) { printf("BF1 stub: %s\n", "scePthreadMutexTimedlock"); return 0; }
-static ABI int64_t bf1_stub_205(void) { printf("BF1 stub: %s\n", "sceHttpTerm"); return 0; }
-static ABI int64_t bf1_stub_206(void) { printf("BF1 stub: %s\n", "JSValueIsString"); return 0; }
-static ABI int64_t bf1_stub_207(void) { printf("BF1 stub: %s\n", "sceNetEpollDestroy"); return 0; }
-static ABI int64_t bf1_stub_208(void) { printf("BF1 stub: %s\n", "sceKernelGetModuleList"); return 0; }
-static ABI int64_t bf1_stub_209(void) { printf("BF1 stub: %s\n", "sceNetResolverGetError"); return 0; }
-static ABI int64_t bf1_stub_210(void) { printf("BF1 stub: %s\n", "sceNpPartyLeave"); return 0; }
-static ABI int64_t bf1_stub_211(void) { printf("BF1 stub: %s\n", "sceNpLookupCreateAsyncRequest"); return 0; }
-static ABI int64_t bf1_stub_212(void) { printf("BF1 stub: %s\n", "scePthreadCondBroadcast"); return 0; }
-static ABI int64_t bf1_stub_213(void) { printf("BF1 stub: %s\n", "sceKernelWaitEventFlag"); return 0; }
-static ABI int64_t bf1_stub_214(void) { printf("BF1 stub: %s\n", "sceFiberFinalize"); return 0; }
-static ABI int64_t bf1_stub_215(void) { printf("BF1 stub: %s\n", "sceAudioOutInit"); return 0; }
-static ABI int64_t bf1_stub_216(void) { printf("BF1 stub: %s\n", "sceAudioInClose"); return 0; }
-static ABI int64_t bf1_stub_217(void) { printf("BF1 stub: %s\n", "pthread_create_name_np"); return 0; }
-static ABI int64_t bf1_stub_218(void) { printf("BF1 stub: %s\n", "sceNpWebApiAbortRequest"); return 0; }
-static ABI int64_t bf1_stub_219(void) { printf("BF1 stub: %s\n", "pthread_mutex_trylock"); return 0; }
-static ABI int64_t bf1_stub_220(void) { printf("BF1 stub: %s\n", "sceNetPoolDestroy"); return 0; }
-static ABI int64_t bf1_stub_221(void) { printf("BF1 stub: %s\n", "sceSaveDataDialogUpdateStatus"); return 0; }
-static ABI int64_t bf1_stub_222(void) { printf("BF1 stub: %s\n", "sceNpGetAccountLanguage"); return 0; }
-static ABI int64_t bf1_stub_223(void) { printf("BF1 stub: %s\n", "sceNpWebApiSendRequest2"); return 0; }
-static ABI int64_t bf1_stub_224(void) { printf("BF1 stub: %s\n", "sceGnmGetNumTcaUnits"); return 0; }
-static ABI int64_t bf1_stub_225(void) { printf("BF1 stub: %s\n", "bind"); return 0; }
-static ABI int64_t bf1_stub_226(void) { printf("BF1 stub: %s\n", "sceGnmSetCsShaderWithModifier"); return 0; }
-static ABI int64_t bf1_stub_227(void) { printf("BF1 stub: %s\n", "sceNpAuthGetAuthorizationCode"); return 0; }
-static ABI int64_t bf1_stub_228(void) { printf("BF1 stub: %s\n", "sceKernelMapDirectMemory"); return 0; }
-static ABI int64_t bf1_stub_229(void) { printf("BF1 stub: %s\n", "sceNpCommerceDialogUpdateStatus"); return 0; }
-static ABI int64_t bf1_stub_230(void) { printf("BF1 stub: %s\n", "JSObjectCopyPropertyNames"); return 0; }
-static ABI int64_t bf1_stub_231(void) { printf("BF1 stub: %s\n", "sceNpProfileDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_232(void) { printf("BF1 stub: %s\n", "sceAudioInInput"); return 0; }
-static ABI int64_t bf1_stub_233(void) { printf("BF1 stub: %s\n", "scePlayGoOpen"); return 0; }
-static ABI int64_t bf1_stub_234(void) { printf("BF1 stub: %s\n", "sceGnmValidateResetState"); return 0; }
-static ABI int64_t bf1_stub_235(void) { printf("BF1 stub: %s\n", "sceKernelReleaseDirectMemory"); return 0; }
-static ABI int64_t bf1_stub_236(void) { printf("BF1 stub: %s\n", "JSSynchronousGarbageCollectForDebugging"); return 0; }
-static ABI int64_t bf1_stub_237(void) { printf("BF1 stub: %s\n", "sceAjmFinalize"); return 0; }
-static ABI int64_t bf1_stub_238(void) { printf("BF1 stub: %s\n", "scePlayGoTerminate"); return 0; }
-static ABI int64_t bf1_stub_239(void) { printf("BF1 stub: %s\n", "sceVideoOutSetWindowModeMargins"); return 0; }
-static ABI int64_t bf1_stub_240(void) { printf("BF1 stub: %s\n", "sceGnmResetVgtControl"); return 0; }
-static ABI int64_t bf1_stub_241(void) { printf("BF1 stub: %s\n", "sceNpAuthCreateAsyncRequest"); return 0; }
-static ABI int64_t bf1_stub_242(void) { printf("BF1 stub: %s\n", "sceVideoOutConfigureOutputMode_"); return 0; }
-static ABI int64_t bf1_stub_243(void) { printf("BF1 stub: %s\n", "rename"); return 0; }
-static ABI int64_t bf1_stub_244(void) { printf("BF1 stub: %s\n", "sceImeDialogInit"); return 0; }
-static ABI int64_t bf1_stub_245(void) { printf("BF1 stub: %s\n", "sceLibcHeapGetTraceInfo"); return 0; }
-static ABI int64_t bf1_stub_246(void) { printf("BF1 stub: %s\n", "sceKernelMapNamedDirectMemory"); return 0; }
-static ABI int64_t bf1_stub_247(void) { printf("BF1 stub: %s\n", "sceNetResolverStartNtoa"); return 0; }
-static ABI int64_t bf1_stub_248(void) { printf("BF1 stub: %s\n", "sceNetInit"); return 0; }
-static ABI int64_t bf1_stub_249(void) { printf("BF1 stub: %s\n", "JSStringRelease"); return 0; }
-static ABI int64_t bf1_stub_250(void) { printf("BF1 stub: %s\n", "scePlayGoGetToDoList"); return 0; }
-static ABI int64_t bf1_stub_251(void) { printf("BF1 stub: %s\n", "JSStringGetUTF8CString"); return 0; }
-static ABI int64_t bf1_stub_252(void) { printf("BF1 stub: %s\n", "scePthreadSetcancelstate"); return 0; }
-static ABI int64_t bf1_stub_253(void) { printf("BF1 stub: %s\n", "sceKernelDebugRaiseException"); return 0; }
-static ABI int64_t bf1_stub_254(void) { printf("BF1 stub: %s\n", "sceNetConnect"); return 0; }
-static ABI int64_t bf1_stub_255(void) { printf("BF1 stub: %s\n", "sceVoiceEnd"); return 0; }
-static ABI int64_t bf1_stub_256(void) { printf("BF1 stub: %s\n", "pthread_cond_wait"); return 0; }
-static ABI int64_t bf1_stub_257(void) { printf("BF1 stub: %s\n", "__stack_chk_fail"); return 0; }
-static ABI int64_t bf1_stub_258(void) { printf("BF1 stub: %s\n", "scePthreadRwlockRdlock"); return 0; }
-static ABI int64_t bf1_stub_259(void) { printf("BF1 stub: %s\n", "pthread_create"); return 0; }
-static ABI int64_t bf1_stub_260(void) { printf("BF1 stub: %s\n", "sceAudio3dPortClose"); return 0; }
-static ABI int64_t bf1_stub_261(void) { printf("BF1 stub: %s\n", "sceNpAbortRequest"); return 0; }
-static ABI int64_t bf1_stub_262(void) { printf("BF1 stub: %s\n", "scePthreadGetschedparam"); return 0; }
-static ABI int64_t bf1_stub_263(void) { printf("BF1 stub: %s\n", "sceRandomGetRandomNumber"); return 0; }
-static ABI int64_t bf1_stub_264(void) { printf("BF1 stub: %s\n", "sceNetAccept"); return 0; }
-static ABI int64_t bf1_stub_265(void) { printf("BF1 stub: %s\n", "sceGnmDeleteEqEvent"); return 0; }
-static ABI int64_t bf1_stub_266(void) { printf("BF1 stub: %s\n", "sceNpWebApiDeleteServicePushEventFilter"); return 0; }
-static ABI int64_t bf1_stub_267(void) { printf("BF1 stub: %s\n", "sceNpWebApiRegisterPushEventCallback"); return 0; }
-static ABI int64_t bf1_stub_268(void) { printf("BF1 stub: %s\n", "_ZN3sce7Toolkit2NP9Utilities6FutureINS1_6NpUserEE3getEv"); return 0; }
-static ABI int64_t bf1_stub_269(void) { printf("BF1 stub: %s\n", "scePthreadKeyDelete"); return 0; }
-static ABI int64_t bf1_stub_270(void) { printf("BF1 stub: %s\n", "sceAjmModuleRegister"); return 0; }
-static ABI int64_t bf1_stub_271(void) { printf("BF1 stub: %s\n", "sceNetSocket"); return 0; }
-static ABI int64_t bf1_stub_272(void) { printf("BF1 stub: %s\n", "sceGnmValidationRegisterMemoryCheckCallback"); return 0; }
-static ABI int64_t bf1_stub_273(void) { printf("BF1 stub: %s\n", "sceKernelClockGettime"); return 0; }
-static ABI int64_t bf1_stub_274(void) { printf("BF1 stub: %s\n", "sceKernelStopUnloadModule"); return 0; }
-static ABI int64_t bf1_stub_275(void) { printf("BF1 stub: %s\n", "sceAudioOutOutput"); return 0; }
-static ABI int64_t bf1_stub_276(void) { printf("BF1 stub: %s\n", "usleep"); return 0; }
-static ABI int64_t bf1_stub_277(void) { printf("BF1 stub: %s\n", "sceKernelNanosleep"); return 0; }
-static ABI int64_t bf1_stub_278(void) { printf("BF1 stub: %s\n", "sceKernelDeleteSema"); return 0; }
-static ABI int64_t bf1_stub_279(void) { printf("BF1 stub: %s\n", "sceGnmDriverTraceInProgress"); return 0; }
-static ABI int64_t bf1_stub_280(void) { printf("BF1 stub: %s\n", "sceAppContentInitialize"); return 0; }
-static ABI int64_t bf1_stub_281(void) { printf("BF1 stub: %s\n", "JSContextGetGlobalObject"); return 0; }
-static ABI int64_t bf1_stub_282(void) { printf("BF1 stub: %s\n", "sceGnmLogicalCuMaskToPhysicalCuMask"); return 0; }
-static ABI int64_t bf1_stub_283(void) { printf("BF1 stub: %s\n", "sceGnmValidateGetDiagnosticInfo"); return 0; }
-static ABI int64_t bf1_stub_284(void) { printf("BF1 stub: %s\n", "pthread_cond_destroy"); return 0; }
-static ABI int64_t bf1_stub_285(void) { printf("BF1 stub: %s\n", "sceAjmInstanceDestroy"); return 0; }
-static ABI int64_t bf1_stub_286(void) { printf("BF1 stub: %s\n", "sceNetNtohs"); return 0; }
-static ABI int64_t bf1_stub_287(void) { printf("BF1 stub: %s\n", "sceKernelGetModuleInfoForUnwind"); return 0; }
-static ABI int64_t bf1_stub_288(void) { printf("BF1 stub: %s\n", "sceNetCtlUnregisterCallback"); return 0; }
-static ABI int64_t bf1_stub_289(void) { printf("BF1 stub: %s\n", "scePthreadAttrGetstackaddr"); return 0; }
-static ABI int64_t bf1_stub_290(void) { printf("BF1 stub: %s\n", "sceSaveDataDelete"); return 0; }
-static ABI int64_t bf1_stub_291(void) { printf("BF1 stub: %s\n", "sceNpDeleteRequest"); return 0; }
-static ABI int64_t bf1_stub_292(void) { printf("BF1 stub: %s\n", "sceNetEpollCreate"); return 0; }
-static ABI int64_t bf1_stub_293(void) { printf("BF1 stub: %s\n", "sceGnmValidateDisableDiagnostics"); return 0; }
-static ABI int64_t bf1_stub_294(void) { printf("BF1 stub: %s\n", "sceVideoOutGetFlipStatus"); return 0; }
-static ABI int64_t bf1_stub_295(void) { printf("BF1 stub: %s\n", "sceKernelFcntl"); return 0; }
-static ABI int64_t bf1_stub_296(void) { printf("BF1 stub: %s\n", "sceNpPartyGetMembers"); return 0; }
-static ABI int64_t bf1_stub_297(void) { printf("BF1 stub: %s\n", "sceNpLookupNpId"); return 0; }
-static ABI int64_t bf1_stub_298(void) { printf("BF1 stub: %s\n", "scePthreadYield"); return 0; }
-static ABI int64_t bf1_stub_299(void) { printf("BF1 stub: %s\n", "select"); return 0; }
-static ABI int64_t bf1_stub_300(void) { printf("BF1 stub: %s\n", "sceNetGetpeername"); return 0; }
-static ABI int64_t bf1_stub_301(void) { printf("BF1 stub: %s\n", "sceNpTrophyRegisterContext"); return 0; }
-static ABI int64_t bf1_stub_302(void) { printf("BF1 stub: %s\n", "sceGnmDriverCaptureInProgress"); return 0; }
-static ABI int64_t bf1_stub_303(void) { printf("BF1 stub: %s\n", "sceNetShutdown"); return 0; }
-static ABI int64_t bf1_stub_304(void) { printf("BF1 stub: %s\n", "socket"); return 0; }
-static ABI int64_t bf1_stub_305(void) { printf("BF1 stub: %s\n", "getpeername"); return 0; }
-static ABI int64_t bf1_stub_306(void) { printf("BF1 stub: %s\n", "sceVoiceSetBitRate"); return 0; }
-static ABI int64_t bf1_stub_307(void) { printf("BF1 stub: %s\n", "JSObjectMakeFunctionWithCallback"); return 0; }
-static ABI int64_t bf1_stub_308(void) { printf("BF1 stub: %s\n", "sceSaveDataInitialize3"); return 0; }
-static ABI int64_t bf1_stub_309(void) { printf("BF1 stub: %s\n", "sceVideodecDeleteDecoder"); return 0; }
-static ABI int64_t bf1_stub_310(void) { printf("BF1 stub: %s\n", "sceNetCtlRegisterCallback"); return 0; }
-static ABI int64_t bf1_stub_311(void) { printf("BF1 stub: %s\n", "sceGnmSetGsShader"); return 0; }
-static ABI int64_t bf1_stub_312(void) { printf("BF1 stub: %s\n", "sceKernelClose"); return 0; }
-static ABI int64_t bf1_stub_313(void) { printf("BF1 stub: %s\n", "sceGnmInsertThreadTraceMarker"); return 0; }
-static ABI int64_t bf1_stub_314(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetstacksize"); return 0; }
-static ABI int64_t bf1_stub_315(void) { printf("BF1 stub: %s\n", "scePlayGoClose"); return 0; }
-static ABI int64_t bf1_stub_316(void) { printf("BF1 stub: %s\n", "sceAudio3dInitialize"); return 0; }
-static ABI int64_t bf1_stub_317(void) { printf("BF1 stub: %s\n", "sceGnmGetEqEventType"); return 0; }
-static ABI int64_t bf1_stub_318(void) { printf("BF1 stub: %s\n", "sceVideoOutOpen"); return 0; }
-static ABI int64_t bf1_stub_319(void) { printf("BF1 stub: %s\n", "sceGnmDestroyWorkloadStream"); return 0; }
-static ABI int64_t bf1_stub_320(void) { printf("BF1 stub: %s\n", "sceGnmUpdateVsShader"); return 0; }
-static ABI int64_t bf1_stub_321(void) { printf("BF1 stub: %s\n", "sceNpLookupPollAsync"); return 0; }
-static ABI int64_t bf1_stub_322(void) { printf("BF1 stub: %s\n", "signal"); return 0; }
-static ABI int64_t bf1_stub_323(void) { printf("BF1 stub: %s\n", "sceAppContentAddcontMount"); return 0; }
-static ABI int64_t bf1_stub_324(void) { printf("BF1 stub: %s\n", "sceAudio3dPortPush"); return 0; }
-static ABI int64_t bf1_stub_325(void) { printf("BF1 stub: %s\n", "sceGnmSetHsShader"); return 0; }
-static ABI int64_t bf1_stub_326(void) { printf("BF1 stub: %s\n", "sceKernelGetCpumode"); return 0; }
-static ABI int64_t bf1_stub_327(void) { printf("BF1 stub: %s\n", "sceKernelFtruncate"); return 0; }
-static ABI int64_t bf1_stub_328(void) { printf("BF1 stub: %s\n", "sceNpRegisterStateCallback"); return 0; }
-static ABI int64_t bf1_stub_329(void) { printf("BF1 stub: %s\n", "sigfillset"); return 0; }
-static ABI int64_t bf1_stub_330(void) { printf("BF1 stub: %s\n", "sceCompanionHttpdGetEvent"); return 0; }
-static ABI int64_t bf1_stub_331(void) { printf("BF1 stub: %s\n", "sceSystemServiceHideSplashScreen"); return 0; }
-static ABI int64_t bf1_stub_332(void) { printf("BF1 stub: %s\n", "scePthreadSetprio"); return 0; }
-static ABI int64_t bf1_stub_333(void) { printf("BF1 stub: %s\n", "sceGnmInsertPushMarker"); return 0; }
-static ABI int64_t bf1_stub_334(void) { printf("BF1 stub: %s\n", "sceKernelQueryMemoryProtection"); return 0; }
-static ABI int64_t bf1_stub_335(void) { printf("BF1 stub: %s\n", "scePthreadCondWait"); return 0; }
-static ABI int64_t bf1_stub_336(void) { printf("BF1 stub: %s\n", "sceAudio3dTerminate"); return 0; }
-static ABI int64_t bf1_stub_337(void) { printf("BF1 stub: %s\n", "sceInvitationDialogClose"); return 0; }
-static ABI int64_t bf1_stub_338(void) { printf("BF1 stub: %s\n", "sceAjmModuleUnregister"); return 0; }
-static ABI int64_t bf1_stub_339(void) { printf("BF1 stub: %s\n", "sceKernelPrintBacktraceWithModuleInfo"); return 0; }
-static ABI int64_t bf1_stub_340(void) { printf("BF1 stub: %s\n", "sceKernelTruncate"); return 0; }
-static ABI int64_t bf1_stub_341(void) { printf("BF1 stub: %s\n", "sceKernelIsNeoMode"); return 0; }
-static ABI int64_t bf1_stub_342(void) { printf("BF1 stub: %s\n", "sceGnmSetEmbeddedPsShader"); return 0; }
-static ABI int64_t bf1_stub_343(void) { printf("BF1 stub: %s\n", "scePthreadRwlockTryrdlock"); return 0; }
-static ABI int64_t bf1_stub_344(void) { printf("BF1 stub: %s\n", "sceNpGetOnlineId"); return 0; }
-static ABI int64_t bf1_stub_345(void) { printf("BF1 stub: %s\n", "sceNpWebApiDeleteContext"); return 0; }
-static ABI int64_t bf1_stub_346(void) { printf("BF1 stub: %s\n", "connect"); return 0; }
-static ABI int64_t bf1_stub_347(void) { printf("BF1 stub: %s\n", "sceNpTrophyCreateContext"); return 0; }
-static ABI int64_t bf1_stub_348(void) { printf("BF1 stub: %s\n", "sceAudio3dPortOpen"); return 0; }
-static ABI int64_t bf1_stub_349(void) { printf("BF1 stub: %s\n", "sceGnmSetWaveLimitMultipliers"); return 0; }
-static ABI int64_t bf1_stub_350(void) { printf("BF1 stub: %s\n", "sceInvitationDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_351(void) { printf("BF1 stub: %s\n", "JSValueMakeBoolean"); return 0; }
-static ABI int64_t bf1_stub_352(void) { printf("BF1 stub: %s\n", "sceVoiceWriteToIPort"); return 0; }
-static ABI int64_t bf1_stub_353(void) { printf("BF1 stub: %s\n", "scePadReadState"); return 0; }
-static ABI int64_t bf1_stub_354(void) { printf("BF1 stub: %s\n", "JSEvaluateScript"); return 0; }
-static ABI int64_t bf1_stub_355(void) { printf("BF1 stub: %s\n", "sceSaveDataDialogTerminate"); return 0; }
-static ABI int64_t bf1_stub_356(void) { printf("BF1 stub: %s\n", "sceGnmDispatchIndirect"); return 0; }
-static ABI int64_t bf1_stub_357(void) { printf("BF1 stub: %s\n", "sceNpFriendListDialogGetResult"); return 0; }
-static ABI int64_t bf1_stub_358(void) { printf("BF1 stub: %s\n", "sceNetCtlTerm"); return 0; }
-static ABI int64_t bf1_stub_359(void) { printf("BF1 stub: %s\n", "sceVoiceGetResourceInfo"); return 0; }
-static ABI int64_t bf1_stub_360(void) { printf("BF1 stub: %s\n", "JSValueMakeNull"); return 0; }
-static ABI int64_t bf1_stub_361(void) { printf("BF1 stub: %s\n", "Need_sceLibcInternal"); return 0; }
-static ABI int64_t bf1_stub_362(void) { printf("BF1 stub: %s\n", "sceNetEpollControl"); return 0; }
-static ABI int64_t bf1_stub_363(void) { printf("BF1 stub: %s\n", "sceKernelWaitSema"); return 0; }
-static ABI int64_t bf1_stub_364(void) { printf("BF1 stub: %s\n", "sceFiberRun"); return 0; }
-static ABI int64_t bf1_stub_365(void) { printf("BF1 stub: %s\n", "sceNpGetAccountId"); return 0; }
-static ABI int64_t bf1_stub_366(void) { printf("BF1 stub: %s\n", "scePthreadSelf"); return 0; }
-static ABI int64_t bf1_stub_367(void) { printf("BF1 stub: %s\n", "sceGnmInsertPushColorMarker"); return 0; }
-static ABI int64_t bf1_stub_368(void) { printf("BF1 stub: %s\n", "sigprocmask"); return 0; }
-static ABI int64_t bf1_stub_369(void) { printf("BF1 stub: %s\n", "sceGnmInsertSetColorMarker"); return 0; }
-static ABI int64_t bf1_stub_370(void) { printf("BF1 stub: %s\n", "sceVoiceDisconnectIPortFromOPort"); return 0; }
-static ABI int64_t bf1_stub_371(void) { printf("BF1 stub: %s\n", "sceNpWebApiTerminate"); return 0; }
-static ABI int64_t bf1_stub_372(void) { printf("BF1 stub: %s\n", "JSGlobalContextRelease"); return 0; }
-static ABI int64_t bf1_stub_373(void) { printf("BF1 stub: %s\n", "sceAudioOutSetVolume"); return 0; }
-static ABI int64_t bf1_stub_374(void) { printf("BF1 stub: %s\n", "sceMsgDialogOpen"); return 0; }
-static ABI int64_t bf1_stub_375(void) { printf("BF1 stub: %s\n", "sceGnmAreSubmitsAllowed"); return 0; }
-static ABI int64_t bf1_stub_376(void) { printf("BF1 stub: %s\n", "sceGnmAddEqEvent"); return 0; }
-static ABI int64_t bf1_stub_377(void) { printf("BF1 stub: %s\n", "sceVoiceDeletePort"); return 0; }
-static ABI int64_t bf1_stub_378(void) { printf("BF1 stub: %s\n", "sceNetBind"); return 0; }
-static ABI int64_t bf1_stub_379(void) { printf("BF1 stub: %s\n", "scePthreadRwlockTrywrlock"); return 0; }
-static ABI int64_t bf1_stub_380(void) { printf("BF1 stub: %s\n", "JSValueToBoolean"); return 0; }
-static ABI int64_t bf1_stub_381(void) { printf("BF1 stub: %s\n", "sceGnmDingDong"); return 0; }
-static ABI int64_t bf1_stub_382(void) { printf("BF1 stub: %s\n", "close"); return 0; }
-static ABI int64_t bf1_stub_383(void) { printf("BF1 stub: %s\n", "sceNetSend"); return 0; }
-static ABI int64_t bf1_stub_384(void) { printf("BF1 stub: %s\n", "scePthreadSetaffinity"); return 0; }
-static ABI int64_t bf1_stub_385(void) { printf("BF1 stub: %s\n", "sceAppContentTemporaryDataMount2"); return 0; }
-static ABI int64_t bf1_stub_386(void) { printf("BF1 stub: %s\n", "sceUserServiceTerminate"); return 0; }
-static ABI int64_t bf1_stub_387(void) { printf("BF1 stub: %s\n", "sceGnmDingDongForWorkload"); return 0; }
-static ABI int64_t bf1_stub_388(void) { printf("BF1 stub: %s\n", "sceSaveDataSaveIcon"); return 0; }
-static ABI int64_t bf1_stub_389(void) { printf("BF1 stub: %s\n", "sceCompanionUtilGetEvent"); return 0; }
-static ABI int64_t bf1_stub_390(void) { printf("BF1 stub: %s\n", "sceNpAuthAbortRequest"); return 0; }
-static ABI int64_t bf1_stub_391(void) { printf("BF1 stub: %s\n", "sceGnmSetVgtControl"); return 0; }
-static ABI int64_t bf1_stub_392(void) { printf("BF1 stub: %s\n", "sceSaveDataLoadIcon"); return 0; }
-static ABI int64_t bf1_stub_393(void) { printf("BF1 stub: %s\n", "sceVoiceReadFromOPort"); return 0; }
-static ABI int64_t bf1_stub_394(void) { printf("BF1 stub: %s\n", "sceKernelMunmap"); return 0; }
-static ABI int64_t bf1_stub_395(void) { printf("BF1 stub: %s\n", "JSValueMakeNumber"); return 0; }
-static ABI int64_t bf1_stub_396(void) { printf("BF1 stub: %s\n", "sceNetTerm"); return 0; }
-static ABI int64_t bf1_stub_397(void) { printf("BF1 stub: %s\n", "scePthreadMutexInit"); return 0; }
-static ABI int64_t bf1_stub_398(void) { printf("BF1 stub: %s\n", "sceSharePlaySetProhibition"); return 0; }
-static ABI int64_t bf1_stub_399(void) { printf("BF1 stub: %s\n", "_is_signal_return"); return 0; }
-static ABI int64_t bf1_stub_400(void) { printf("BF1 stub: %s\n", "sceGnmDriverTriggerCapture"); return 0; }
-static ABI int64_t bf1_stub_401(void) { printf("BF1 stub: %s\n", "pthread_mutexattr_init"); return 0; }
-static ABI int64_t bf1_stub_402(void) { printf("BF1 stub: %s\n", "sceGameLiveStreamingEnableLiveStreaming"); return 0; }
-static ABI int64_t bf1_stub_403(void) { printf("BF1 stub: %s\n", "sceNetPoolCreate"); return 0; }
-static ABI int64_t bf1_stub_404(void) { printf("BF1 stub: %s\n", "sceNpCmpOnlineId"); return 0; }
-static ABI int64_t bf1_stub_405(void) { printf("BF1 stub: %s\n", "__progname"); return 0; }
-static ABI int64_t bf1_stub_406(void) { printf("BF1 stub: %s\n", "sceAjmInitialize"); return 0; }
-static ABI int64_t bf1_stub_407(void) { printf("BF1 stub: %s\n", "sceAjmBatchJobControlBufferRa"); return 0; }
-static ABI int64_t bf1_stub_408(void) { printf("BF1 stub: %s\n", "sceNetEpollWait"); return 0; }
-static ABI int64_t bf1_stub_409(void) { printf("BF1 stub: %s\n", "sceNpCommerceHidePsStoreIcon"); return 0; }
-static ABI int64_t bf1_stub_410(void) { printf("BF1 stub: %s\n", "sceSaveDataDirNameSearch"); return 0; }
-static ABI int64_t bf1_stub_411(void) { printf("BF1 stub: %s\n", "sceMsgDialogTerminate"); return 0; }
-static ABI int64_t bf1_stub_412(void) { printf("BF1 stub: %s\n", "sceNpGetState"); return 0; }
-static ABI int64_t bf1_stub_413(void) { printf("BF1 stub: %s\n", "sceSysmoduleUnloadModule"); return 0; }
-static ABI int64_t bf1_stub_414(void) { printf("BF1 stub: %s\n", "sceKernelStat"); return 0; }
-static ABI int64_t bf1_stub_415(void) { printf("BF1 stub: %s\n", "scePthreadAttrSetinheritsched"); return 0; }
-static ABI int64_t bf1_stub_416(void) { printf("BF1 stub: %s\n", "sceNpCreateAsyncRequest"); return 0; }
-static ABI int64_t bf1_stub_417(void) { printf("BF1 stub: %s\n", "sceKernelGettimeofday"); return 0; }
-static ABI int64_t bf1_stub_418(void) { printf("BF1 stub: %s\n", "sceAudioOutOpen"); return 0; }
-static ABI int64_t bf1_stub_419(void) { printf("BF1 stub: %s\n", "sceVoiceGetPortAttr"); return 0; }
-static ABI int64_t bf1_stub_420(void) { printf("BF1 stub: %s\n", "scePthreadGetspecific"); return 0; }
-static ABI int64_t bf1_stub_421(void) { printf("BF1 stub: %s\n", "sceRazorIsLoaded"); return 0; }
-static ABI int64_t bf1_stub_422(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndirectMulti"); return 0; }
-static ABI int64_t bf1_stub_423(void) { printf("BF1 stub: %s\n", "sceKernelGetModuleInfoFromAddr"); return 0; }
-static ABI int64_t bf1_stub_424(void) { printf("BF1 stub: %s\n", "__stack_chk_guard"); return 0; }
-static ABI int64_t bf1_stub_425(void) { printf("BF1 stub: %s\n", "sceGnmRequestMipStatsReportAndReset"); return 0; }
-static ABI int64_t bf1_stub_426(void) { printf("BF1 stub: %s\n", "sceVideodecReset"); return 0; }
-static ABI int64_t bf1_stub_427(void) { printf("BF1 stub: %s\n", "sceAjmBatchStartBuffer"); return 0; }
-static ABI int64_t bf1_stub_428(void) { printf("BF1 stub: %s\n", "sceCoredumpUnregisterCoredumpHandler"); return 0; }
-static ABI int64_t bf1_stub_429(void) { printf("BF1 stub: %s\n", "setsockopt"); return 0; }
-static ABI int64_t bf1_stub_430(void) { printf("BF1 stub: %s\n", "sceSystemGestureGetTouchEvents"); return 0; }
-static ABI int64_t bf1_stub_431(void) { printf("BF1 stub: %s\n", "sceSysmoduleIsLoaded"); return 0; }
-static ABI int64_t bf1_stub_432(void) { printf("BF1 stub: %s\n", "sceUserServiceGetLoginUserIdList"); return 0; }
-static ABI int64_t bf1_stub_433(void) { printf("BF1 stub: %s\n", "sceKernelFsync"); return 0; }
-static ABI int64_t bf1_stub_434(void) { printf("BF1 stub: %s\n", "send"); return 0; }
-static ABI int64_t bf1_stub_435(void) { printf("BF1 stub: %s\n", "sceSystemServiceParamGetInt"); return 0; }
-static ABI int64_t bf1_stub_436(void) { printf("BF1 stub: %s\n", "sceKernelChmod"); return 0; }
-static ABI int64_t bf1_stub_437(void) { printf("BF1 stub: %s\n", "sceNpFriendListDialogUpdateStatus"); return 0; }
-static ABI int64_t bf1_stub_438(void) { printf("BF1 stub: %s\n", "sceGnmGetProtectionFaultTimeStamp"); return 0; }
-static ABI int64_t bf1_stub_439(void) { printf("BF1 stub: %s\n", "sceKernelWaitEqueue"); return 0; }
-static ABI int64_t bf1_stub_440(void) { printf("BF1 stub: %s\n", "scePthreadCondDestroy"); return 0; }
-static ABI int64_t bf1_stub_441(void) { printf("BF1 stub: %s\n", "JSValueGetType"); return 0; }
-static ABI int64_t bf1_stub_442(void) { printf("BF1 stub: %s\n", "sceSysmoduleLoadModule"); return 0; }
-static ABI int64_t bf1_stub_443(void) { printf("BF1 stub: %s\n", "sceGnmSetVsShader"); return 0; }
-static ABI int64_t bf1_stub_444(void) { printf("BF1 stub: %s\n", "JSPropertyNameArrayGetCount"); return 0; }
-static ABI int64_t bf1_stub_445(void) { printf("BF1 stub: %s\n", "sceGnmRequestFlipAndSubmitDone"); return 0; }
-static ABI int64_t bf1_stub_446(void) { printf("BF1 stub: %s\n", "scePthreadKeyCreate"); return 0; }
-static ABI int64_t bf1_stub_447(void) { printf("BF1 stub: %s\n", "scePadGetControllerInformation"); return 0; }
-static ABI int64_t bf1_stub_448(void) { printf("BF1 stub: %s\n", "sceNpAuthPollAsync"); return 0; }
-static ABI int64_t bf1_stub_449(void) { printf("BF1 stub: %s\n", "sceNetCtlInit"); return 0; }
-static ABI int64_t bf1_stub_450(void) { printf("BF1 stub: %s\n", "sceNetSendto"); return 0; }
-static ABI int64_t bf1_stub_451(void) { printf("BF1 stub: %s\n", "sceImeDialogTerm"); return 0; }
-static ABI int64_t bf1_stub_452(void) { printf("BF1 stub: %s\n", "pthread_join"); return 0; }
-static ABI int64_t bf1_stub_453(void) { printf("BF1 stub: %s\n", "getrusage"); return 0; }
-static ABI int64_t bf1_stub_454(void) { printf("BF1 stub: %s\n", "sceNetGetSockInfo"); return 0; }
-static ABI int64_t bf1_stub_455(void) { printf("BF1 stub: %s\n", "JSPropertyNameArrayRelease"); return 0; }
-static ABI int64_t bf1_stub_456(void) { printf("BF1 stub: %s\n", "_sceFiberInitializeImpl"); return 0; }
-static ABI int64_t bf1_stub_457(void) { printf("BF1 stub: %s\n", "sceNpProfileDialogUpdateStatus"); return 0; }
-static ABI int64_t bf1_stub_458(void) { printf("BF1 stub: %s\n", "sceSslInit"); return 0; }
-static ABI int64_t bf1_stub_459(void) { printf("BF1 stub: %s\n", "sceNetGetsockname"); return 0; }
-static ABI int64_t bf1_stub_460(void) { printf("BF1 stub: %s\n", "sceGnmValidateDrawCommandBuffers"); return 0; }
-static ABI int64_t bf1_stub_461(void) { printf("BF1 stub: %s\n", "JSStringCreateWithUTF8CString"); return 0; }
-static ABI int64_t bf1_stub_462(void) { printf("BF1 stub: %s\n", "scePadInit"); return 0; }
-static ABI int64_t bf1_stub_463(void) { printf("BF1 stub: %s\n", "sceKernelCheckedReleaseDirectMemory"); return 0; }
-static ABI int64_t bf1_stub_464(void) { printf("BF1 stub: %s\n", "sceVideoOutSetBufferAttribute"); return 0; }
-static ABI int64_t bf1_stub_465(void) { printf("BF1 stub: %s\n", "sceNpCmpNpId"); return 0; }
-static ABI int64_t bf1_stub_466(void) { printf("BF1 stub: %s\n", "sceGnmFlushGarlic"); return 0; }
-static ABI int64_t bf1_stub_467(void) { printf("BF1 stub: %s\n", "sceGnmGetLastWaitedAddress"); return 0; }
-static ABI int64_t bf1_stub_468(void) { printf("BF1 stub: %s\n", "getargc"); return 0; }
-static ABI int64_t bf1_stub_469(void) { printf("BF1 stub: %s\n", "scePthreadMutexattrSettype"); return 0; }
-static ABI int64_t bf1_stub_470(void) { printf("BF1 stub: %s\n", "sceNetCtlCheckCallback"); return 0; }
-static ABI int64_t bf1_stub_471(void) { printf("BF1 stub: %s\n", "sceNetHtons"); return 0; }
-static ABI int64_t bf1_stub_472(void) { printf("BF1 stub: %s\n", "sceGnmBeginWorkload"); return 0; }
-static ABI int64_t bf1_stub_473(void) { printf("BF1 stub: %s\n", "sceNpGetParentalControlInfo"); return 0; }
-static ABI int64_t bf1_stub_474(void) { printf("BF1 stub: %s\n", "sceSharePlayInitialize"); return 0; }
-static ABI int64_t bf1_stub_475(void) { printf("BF1 stub: %s\n", "sceKernelGetdents"); return 0; }
-static ABI int64_t bf1_stub_476(void) { printf("BF1 stub: %s\n", "sceUserServiceInitialize"); return 0; }
-static ABI int64_t bf1_stub_477(void) { printf("BF1 stub: %s\n", "sceSystemGestureUpdateTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_478(void) { printf("BF1 stub: %s\n", "sceSystemGestureClose"); return 0; }
-static ABI int64_t bf1_stub_479(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndexMultiInstanced"); return 0; }
-static ABI int64_t bf1_stub_480(void) { printf("BF1 stub: %s\n", "sceAudio3dObjectReserve"); return 0; }
-static ABI int64_t bf1_stub_481(void) { printf("BF1 stub: %s\n", "sceGnmSubmitCommandBuffersForWorkload"); return 0; }
-static ABI int64_t bf1_stub_482(void) { printf("BF1 stub: %s\n", "sceVideodecFlush"); return 0; }
-static ABI int64_t bf1_stub_483(void) { printf("BF1 stub: %s\n", "sceGnmIsUserPaEnabled"); return 0; }
-static ABI int64_t bf1_stub_484(void) { printf("BF1 stub: %s\n", "sceGnmInsertSetMarker"); return 0; }
-static ABI int64_t bf1_stub_485(void) { printf("BF1 stub: %s\n", "JSValueIsObject"); return 0; }
-static ABI int64_t bf1_stub_486(void) { printf("BF1 stub: %s\n", "sceKernelDeleteEqueue"); return 0; }
-static ABI int64_t bf1_stub_487(void) { printf("BF1 stub: %s\n", "sceGnmSetGsRingSizes"); return 0; }
-static ABI int64_t bf1_stub_488(void) { printf("BF1 stub: %s\n", "getpagesize"); return 0; }
-static ABI int64_t bf1_stub_489(void) { printf("BF1 stub: %s\n", "sceGnmGetShaderStatus"); return 0; }
-static ABI int64_t bf1_stub_490(void) { printf("BF1 stub: %s\n", "sceNpPartyRegisterHandler"); return 0; }
-static ABI int64_t bf1_stub_491(void) { printf("BF1 stub: %s\n", "sceKernelFstat"); return 0; }
-static ABI int64_t bf1_stub_492(void) { printf("BF1 stub: %s\n", "scePthreadCondSignal"); return 0; }
-static ABI int64_t bf1_stub_493(void) { printf("BF1 stub: %s\n", "sceNpWebApiRegisterServicePushEventCallback"); return 0; }
-static ABI int64_t bf1_stub_494(void) { printf("BF1 stub: %s\n", "sceNetResolverDestroy"); return 0; }
-static ABI int64_t bf1_stub_495(void) { printf("BF1 stub: %s\n", "sceNetListen"); return 0; }
-static ABI int64_t bf1_stub_496(void) { printf("BF1 stub: %s\n", "sceKernelGetModuleInfo"); return 0; }
-static ABI int64_t bf1_stub_497(void) { printf("BF1 stub: %s\n", "__pthread_cxa_finalize"); return 0; }
-static ABI int64_t bf1_stub_498(void) { printf("BF1 stub: %s\n", "_ZNK3sce7Toolkit2NP9Utilities10FutureImpl8hasErrorEv"); return 0; }
-static ABI int64_t bf1_stub_499(void) { printf("BF1 stub: %s\n", "sceGameLiveStreamingInitialize"); return 0; }
-static ABI int64_t bf1_stub_500(void) { printf("BF1 stub: %s\n", "sceMsgDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_501(void) { printf("BF1 stub: %s\n", "clock_gettime"); return 0; }
-static ABI int64_t bf1_stub_502(void) { printf("BF1 stub: %s\n", "JSObjectGetPropertyAtIndex"); return 0; }
-static ABI int64_t bf1_stub_503(void) { printf("BF1 stub: %s\n", "recvfrom"); return 0; }
-static ABI int64_t bf1_stub_504(void) { printf("BF1 stub: %s\n", "sceDiscMapIsRequestOnHDD"); return 0; }
-static ABI int64_t bf1_stub_505(void) { printf("BF1 stub: %s\n", "sceVideodecQueryResourceInfo"); return 0; }
-static ABI int64_t bf1_stub_506(void) { printf("BF1 stub: %s\n", "JSObjectCallAsFunction"); return 0; }
-static ABI int64_t bf1_stub_507(void) { printf("BF1 stub: %s\n", "sceNpPartyInitialize"); return 0; }
-static ABI int64_t bf1_stub_508(void) { printf("BF1 stub: %s\n", "sceGnmGetTheTessellationFactorRingBufferBaseAddress"); return 0; }
-static ABI int64_t bf1_stub_509(void) { printf("BF1 stub: %s\n", "_ZNK3sce7Toolkit2NP9Utilities10FutureImpl9hasResultEv"); return 0; }
-static ABI int64_t bf1_stub_510(void) { printf("BF1 stub: %s\n", "pthread_mutex_destroy"); return 0; }
-static ABI int64_t bf1_stub_511(void) { printf("BF1 stub: %s\n", "sceNpCommerceDialogTerminate"); return 0; }
-static ABI int64_t bf1_stub_512(void) { printf("BF1 stub: %s\n", "scePthreadCondattrInit"); return 0; }
-static ABI int64_t bf1_stub_513(void) { printf("BF1 stub: %s\n", "pthread_mutexattr_settype"); return 0; }
-static ABI int64_t bf1_stub_514(void) { printf("BF1 stub: %s\n", "sceKernelMapNamedFlexibleMemory"); return 0; }
-static ABI int64_t bf1_stub_515(void) { printf("BF1 stub: %s\n", "sceGnmUpdatePsShader350"); return 0; }
-static ABI int64_t bf1_stub_516(void) { printf("BF1 stub: %s\n", "sceNpUnregisterStateCallback"); return 0; }
-static ABI int64_t bf1_stub_517(void) { printf("BF1 stub: %s\n", "sigreturn"); return 0; }
-static ABI int64_t bf1_stub_518(void) { printf("BF1 stub: %s\n", "scePthreadRwlockWrlock"); return 0; }
-static ABI int64_t bf1_stub_519(void) { printf("BF1 stub: %s\n", "JSValueMakeUndefined"); return 0; }
-static ABI int64_t bf1_stub_520(void) { printf("BF1 stub: %s\n", "sceNpLookupDeleteTitleCtx"); return 0; }
-static ABI int64_t bf1_stub_521(void) { printf("BF1 stub: %s\n", "gettimeofday"); return 0; }
-static ABI int64_t bf1_stub_522(void) { printf("BF1 stub: %s\n", "sceGnmGetShaderProgramBaseAddress"); return 0; }
-static ABI int64_t bf1_stub_523(void) { printf("BF1 stub: %s\n", "sceGnmDispatchInitDefaultHardwareState"); return 0; }
-static ABI int64_t bf1_stub_524(void) { printf("BF1 stub: %s\n", "sceKernelPwrite"); return 0; }
-static ABI int64_t bf1_stub_525(void) { printf("BF1 stub: %s\n", "sceGnmUpdateGsShader"); return 0; }
-static ABI int64_t bf1_stub_526(void) { printf("BF1 stub: %s\n", "sceNpPartyCreate"); return 0; }
-static ABI int64_t bf1_stub_527(void) { printf("BF1 stub: %s\n", "sceVoiceCreatePort"); return 0; }
-static ABI int64_t bf1_stub_528(void) { printf("BF1 stub: %s\n", "sceKernelRmdir"); return 0; }
-static ABI int64_t bf1_stub_529(void) { printf("BF1 stub: %s\n", "sceNpWebApiDeleteRequest"); return 0; }
-static ABI int64_t bf1_stub_530(void) { printf("BF1 stub: %s\n", "scePthreadAttrInit"); return 0; }
-static ABI int64_t bf1_stub_531(void) { printf("BF1 stub: %s\n", "sceSystemGestureResetPrimitiveTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_532(void) { printf("BF1 stub: %s\n", "JSObjectMakeArray"); return 0; }
-static ABI int64_t bf1_stub_533(void) { printf("BF1 stub: %s\n", "sceImeDialogAbort"); return 0; }
-static ABI int64_t bf1_stub_534(void) { printf("BF1 stub: %s\n", "sendto"); return 0; }
-static ABI int64_t bf1_stub_535(void) { printf("BF1 stub: %s\n", "sceSystemGestureResetTouchRecognizer"); return 0; }
-static ABI int64_t bf1_stub_536(void) { printf("BF1 stub: %s\n", "scePthreadSetschedparam"); return 0; }
-static ABI int64_t bf1_stub_537(void) { printf("BF1 stub: %s\n", "sceGnmGetGpuBlockStatus"); return 0; }
-static ABI int64_t bf1_stub_538(void) { printf("BF1 stub: %s\n", "sceNpPartyTerminate"); return 0; }
-static ABI int64_t bf1_stub_539(void) { printf("BF1 stub: %s\n", "sceVoiceConnectIPortToOPort"); return 0; }
-static ABI int64_t bf1_stub_540(void) { printf("BF1 stub: %s\n", "sceGnmDrawIndexOffset"); return 0; }
-static ABI int64_t bf1_stub_541(void) { printf("BF1 stub: %s\n", "sceNetCtlGetInfo"); return 0; }
-static ABI int64_t bf1_stub_542(void) { printf("BF1 stub: %s\n", "sceKernelLseek"); return 0; }
-static ABI int64_t bf1_stub_543(void) { printf("BF1 stub: %s\n", "scePthreadJoin"); return 0; }
-static ABI int64_t bf1_stub_544(void) { printf("BF1 stub: %s\n", "sceNpWebApiUtilityParseNpId"); return 0; }
-static ABI int64_t bf1_stub_545(void) { printf("BF1 stub: %s\n", "sceNpGetNpId"); return 0; }
-static ABI int64_t bf1_stub_546(void) { printf("BF1 stub: %s\n", "_sceKernelRtldSetApplicationHeapAPI"); return 0; }
-static ABI int64_t bf1_stub_547(void) { printf("BF1 stub: %s\n", "JSObjectGetProperty"); return 0; }
-static ABI int64_t bf1_stub_548(void) { printf("BF1 stub: %s\n", "sceKernelGetDirectMemorySize"); return 0; }
-static ABI int64_t bf1_stub_549(void) { printf("BF1 stub: %s\n", "sceVideoOutModeSetAny_"); return 0; }
-static ABI int64_t bf1_stub_550(void) { printf("BF1 stub: %s\n", "listen"); return 0; }
-static ABI int64_t bf1_stub_551(void) { printf("BF1 stub: %s\n", "sceVideodecDecode"); return 0; }
-static ABI int64_t bf1_stub_552(void) { printf("BF1 stub: %s\n", "scePadRead"); return 0; }
-static ABI int64_t bf1_stub_553(void) { printf("BF1 stub: %s\n", "sceNpTrophyCreateHandle"); return 0; }
-static ABI int64_t bf1_stub_554(void) { printf("BF1 stub: %s\n", "sceGnmValidateDispatchCommandBuffers"); return 0; }
-static ABI int64_t bf1_stub_555(void) { printf("BF1 stub: %s\n", "sceNpWebApiUnregisterPushEventCallback"); return 0; }
-static ABI int64_t bf1_stub_556(void) { printf("BF1 stub: %s\n", "sceVideodecCreateDecoder"); return 0; }
-static ABI int64_t bf1_stub_557(void) { printf("BF1 stub: %s\n", "JSValueToObject"); return 0; }
-static ABI int64_t bf1_stub_558(void) { printf("BF1 stub: %s\n", "sceGnmDebugHardwareStatus"); return 0; }
-static ABI int64_t bf1_stub_559(void) { printf("BF1 stub: %s\n", "sceSystemGestureOpen"); return 0; }
-static ABI int64_t bf1_stub_560(void) { printf("BF1 stub: %s\n", "sceNpCommerceDialogGetResult"); return 0; }
-static ABI int64_t bf1_stub_561(void) { printf("BF1 stub: %s\n", "sceNpCheckPlus"); return 0; }
-static ABI int64_t bf1_stub_562(void) { printf("BF1 stub: %s\n", "sceSystemServiceGetStatus"); return 0; }
-static ABI int64_t bf1_stub_563(void) { printf("BF1 stub: %s\n", "JSValueToNumber"); return 0; }
-static ABI int64_t bf1_stub_564(void) { printf("BF1 stub: %s\n", "sceGnmValidateOnSubmitEnabled"); return 0; }
-static ABI int64_t bf1_stub_565(void) { printf("BF1 stub: %s\n", "sceKernelAllocateDirectMemory"); return 0; }
-static ABI int64_t bf1_stub_566(void) { printf("BF1 stub: %s\n", "sceKernelVirtualQuery"); return 0; }
-static ABI int64_t bf1_stub_567(void) { printf("BF1 stub: %s\n", "sceVideoOutGetEventData"); return 0; }
-static ABI int64_t bf1_stub_568(void) { printf("BF1 stub: %s\n", "scePthreadGetaffinity"); return 0; }
-static ABI int64_t bf1_stub_569(void) { printf("BF1 stub: %s\n", "sceNpWebApiCreateRequest"); return 0; }
-static ABI int64_t bf1_stub_570(void) { printf("BF1 stub: %s\n", "scePlayGoGetInstallSpeed"); return 0; }
-static ABI int64_t bf1_stub_571(void) { printf("BF1 stub: %s\n", "sceAudioOutClose"); return 0; }
-static ABI int64_t bf1_stub_572(void) { printf("BF1 stub: %s\n", "sceSaveDataDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_573(void) { printf("BF1 stub: %s\n", "sceNpWebApiCreateServicePushEventFilter"); return 0; }
-static ABI int64_t bf1_stub_574(void) { printf("BF1 stub: %s\n", "sceNpGetPlatformType"); return 0; }
-static ABI int64_t bf1_stub_575(void) { printf("BF1 stub: %s\n", "scePthreadMutexattrDestroy"); return 0; }
-static ABI int64_t bf1_stub_576(void) { printf("BF1 stub: %s\n", "sceGnmDrawOpaqueAuto"); return 0; }
-static ABI int64_t bf1_stub_577(void) { printf("BF1 stub: %s\n", "sceScreenShotDisable"); return 0; }
-static ABI int64_t bf1_stub_578(void) { printf("BF1 stub: %s\n", "sceGnmGetGpuInfoStatus"); return 0; }
-static ABI int64_t bf1_stub_579(void) { printf("BF1 stub: %s\n", "msync"); return 0; }
-static ABI int64_t bf1_stub_580(void) { printf("BF1 stub: %s\n", "sceKernelGetdirentries"); return 0; }
-static ABI int64_t bf1_stub_581(void) { printf("BF1 stub: %s\n", "_ZN3sce7Toolkit2NP9Utilities6FutureINS1_6NpUserEED1Ev"); return 0; }
-static ABI int64_t bf1_stub_582(void) { printf("BF1 stub: %s\n", "sceKernelReleaseFlexibleMemory"); return 0; }
-static ABI int64_t bf1_stub_583(void) { printf("BF1 stub: %s\n", "scePthreadMutexUnlock"); return 0; }
-static ABI int64_t bf1_stub_584(void) { printf("BF1 stub: %s\n", "JSObjectSetPropertyAtIndex"); return 0; }
-static ABI int64_t bf1_stub_585(void) { printf("BF1 stub: %s\n", "scePlayGoInitialize"); return 0; }
-static ABI int64_t bf1_stub_586(void) { printf("BF1 stub: %s\n", "pthread_mutex_init"); return 0; }
-static ABI int64_t bf1_stub_587(void) { printf("BF1 stub: %s\n", "JSValueIsBoolean"); return 0; }
-static ABI int64_t bf1_stub_588(void) { printf("BF1 stub: %s\n", "sceRazorCaptureImmediate"); return 0; }
-static ABI int64_t bf1_stub_589(void) { printf("BF1 stub: %s\n", "sceNetCtlGetState"); return 0; }
-static ABI int64_t bf1_stub_590(void) { printf("BF1 stub: %s\n", "scePlayGoGetLocus"); return 0; }
-static ABI int64_t bf1_stub_591(void) { printf("BF1 stub: %s\n", "sceVoiceResetPort"); return 0; }
-static ABI int64_t bf1_stub_592(void) { printf("BF1 stub: %s\n", "sceNpProfileDialogOpen"); return 0; }
-static ABI int64_t bf1_stub_593(void) { printf("BF1 stub: %s\n", "sceCommonDialogInitialize"); return 0; }
-static ABI int64_t bf1_stub_594(void) { printf("BF1 stub: %s\n", "scePthreadMutexTrylock"); return 0; }
-static ABI int64_t bf1_stub_595(void) { printf("BF1 stub: %s\n", "sceNpPollAsync"); return 0; }
-static ABI int64_t bf1_stub_596(void) { printf("BF1 stub: %s\n", "sceVideoOutClose"); return 0; }
-static ABI int64_t bf1_stub_597(void) { printf("BF1 stub: %s\n", "__tls_get_addr"); return 0; }
-static ABI int64_t bf1_stub_598(void) { printf("BF1 stub: %s\n", "sceGnmSetLsShader"); return 0; }
-static ABI int64_t bf1_stub_599(void) { printf("BF1 stub: %s\n", "JSObjectMake"); return 0; }
-static ABI int64_t bf1_stub_600(void) { printf("BF1 stub: %s\n", "sceVideoOutRegisterBuffers"); return 0; }
-static ABI int64_t bf1_stub_601(void) { printf("BF1 stub: %s\n", "sceGnmDispatchIndirectOnMec"); return 0; }
-static ABI int64_t bf1_stub_602(void) { printf("BF1 stub: %s\n", "sceNpLookupDeleteRequest"); return 0; }
-static ABI int64_t bf1_stub_603(void) { printf("BF1 stub: %s\n", "scePthreadCondattrDestroy"); return 0; }
-static ABI int64_t bf1_stub_604(void) { printf("BF1 stub: %s\n", "pthread_attr_init"); return 0; }
-static ABI int64_t bf1_stub_605(void) { printf("BF1 stub: %s\n", "sceKernelLoadStartModule"); return 0; }
-static ABI int64_t bf1_stub_606(void) { printf("BF1 stub: %s\n", "sceImeDialogGetResult"); return 0; }
-static ABI int64_t bf1_stub_607(void) { printf("BF1 stub: %s\n", "scePthreadAttrGet"); return 0; }
-static ABI int64_t bf1_stub_608(void) { printf("BF1 stub: %s\n", "sceNpWebApiCreateContext"); return 0; }
-static ABI int64_t bf1_stub_609(void) { printf("BF1 stub: %s\n", "sceGnmSubmitAndFlipCommandBuffers"); return 0; }
-static ABI int64_t bf1_stub_610(void) { printf("BF1 stub: %s\n", "scePadOpen"); return 0; }
-static ABI int64_t bf1_stub_611(void) { printf("BF1 stub: %s\n", "sceAppContentGetAddcontInfoList"); return 0; }
-static ABI int64_t bf1_stub_612(void) { printf("BF1 stub: %s\n", "sceNetGetsockopt"); return 0; }
-static ABI int64_t bf1_stub_613(void) { printf("BF1 stub: %s\n", "sceNpWebApiCreatePushEventFilter"); return 0; }
-static ABI int64_t bf1_stub_614(void) { printf("BF1 stub: %s\n", "scePadSetVibration"); return 0; }
-static ABI int64_t bf1_stub_615(void) { printf("BF1 stub: %s\n", "sceUserServiceGetEvent"); return 0; }
-static ABI int64_t bf1_stub_616(void) { printf("BF1 stub: %s\n", "sceSaveDataTerminate"); return 0; }
-static ABI int64_t bf1_stub_617(void) { printf("BF1 stub: %s\n", "nanosleep"); return 0; }
-static ABI int64_t bf1_stub_618(void) { printf("BF1 stub: %s\n", "sceGnmDrawInitDefaultHardwareState350"); return 0; }
-static ABI int64_t bf1_stub_619(void) { printf("BF1 stub: %s\n", "sceGnmSubmitDone"); return 0; }
-static ABI int64_t bf1_stub_620(void) { printf("BF1 stub: %s\n", "JSObjectSetProperty"); return 0; }
-static ABI int64_t bf1_stub_621(void) { printf("BF1 stub: %s\n", "sceNpWebApiDeletePushEventFilter"); return 0; }
-static ABI int64_t bf1_stub_622(void) { printf("BF1 stub: %s\n", "sceKernelDebugRaiseExceptionOnReleaseMode"); return 0; }
-static ABI int64_t bf1_stub_623(void) { printf("BF1 stub: %s\n", "sceNetSocketAbort"); return 0; }
-static ABI int64_t bf1_stub_624(void) { printf("BF1 stub: %s\n", "sceNpFriendListDialogOpen"); return 0; }
-static ABI int64_t bf1_stub_625(void) { printf("BF1 stub: %s\n", "sceGnmSubmitCommandBuffers"); return 0; }
+static char bf1_dummy_object[256];
+static ABI int64_t bf1_zero_stub(void) { printf("BF1 stub: %s\n", __func__); return 0; }
+static ABI int64_t bf1_pointer_stub(void) { printf("BF1 ptr stub: %s\n", __func__); return (int64_t)(uintptr_t)bf1_dummy_object; }
+
+static ABI int64_t bf1_stub_0(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_1(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_2(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_3(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_4(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_5(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_6(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_7(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_8(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_9(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_10(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_11(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_12(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_13(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_14(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_15(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_16(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_17(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_18(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_19(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_20(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_21(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_22(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_23(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_24(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_25(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_26(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_27(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_28(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_29(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_30(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_31(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_32(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_33(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_34(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_35(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_36(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_37(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_38(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_39(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_40(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_41(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_42(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_43(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_44(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_45(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_46(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_47(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_48(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_49(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_50(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_51(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_52(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_53(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_54(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_55(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_56(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_57(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_58(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_59(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_60(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_61(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_62(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_63(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_64(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_65(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_66(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_67(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_68(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_69(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_70(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_71(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_72(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_73(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_74(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_75(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_76(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_77(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_78(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_79(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_80(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_81(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_82(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_83(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_84(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_85(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_86(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_87(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_88(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_89(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_90(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_91(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_92(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_93(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_94(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_95(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_96(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_97(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_98(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_99(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_100(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_101(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_102(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_103(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_104(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_105(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_106(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_107(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_108(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_109(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_110(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_111(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_112(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_113(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_114(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_115(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_116(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_117(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_118(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_119(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_120(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_121(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_122(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_123(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_124(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_125(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_126(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_127(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_128(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_129(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_130(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_131(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_132(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_133(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_134(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_135(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_136(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_137(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_138(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_139(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_140(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_141(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_142(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_143(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_144(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_145(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_146(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_147(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_148(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_149(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_150(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_151(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_152(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_153(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_154(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_155(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_156(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_157(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_158(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_159(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_160(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_161(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_162(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_163(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_164(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_165(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_166(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_167(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_168(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_169(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_170(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_171(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_172(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_173(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_174(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_175(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_176(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_177(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_178(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_179(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_180(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_181(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_182(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_183(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_184(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_185(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_186(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_187(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_188(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_189(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_190(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_191(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_192(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_193(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_194(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_195(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_196(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_197(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_198(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_199(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_200(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_201(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_202(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_203(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_204(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_205(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_206(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_207(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_208(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_209(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_210(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_211(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_212(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_213(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_214(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_215(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_216(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_217(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_218(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_219(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_220(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_221(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_222(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_223(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_224(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_225(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_226(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_227(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_228(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_229(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_230(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_231(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_232(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_233(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_234(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_235(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_236(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_237(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_238(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_239(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_240(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_241(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_242(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_243(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_244(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_245(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_246(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_247(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_248(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_249(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_250(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_251(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_252(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_253(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_254(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_255(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_256(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_257(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_258(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_259(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_260(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_261(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_262(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_263(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_264(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_265(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_266(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_267(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_268(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_269(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_270(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_271(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_272(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_273(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_274(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_275(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_276(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_277(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_278(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_279(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_280(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_281(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_282(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_283(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_284(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_285(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_286(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_287(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_288(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_289(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_290(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_291(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_292(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_293(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_294(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_295(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_296(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_297(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_298(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_299(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_300(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_301(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_302(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_303(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_304(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_305(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_306(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_307(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_308(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_309(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_310(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_311(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_312(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_313(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_314(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_315(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_316(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_317(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_318(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_319(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_320(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_321(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_322(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_323(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_324(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_325(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_326(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_327(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_328(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_329(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_330(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_331(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_332(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_333(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_334(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_335(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_336(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_337(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_338(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_339(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_340(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_341(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_342(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_343(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_344(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_345(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_346(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_347(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_348(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_349(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_350(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_351(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_352(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_353(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_354(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_355(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_356(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_357(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_358(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_359(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_360(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_361(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_362(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_363(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_364(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_365(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_366(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_367(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_368(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_369(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_370(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_371(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_372(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_373(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_374(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_375(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_376(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_377(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_378(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_379(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_380(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_381(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_382(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_383(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_384(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_385(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_386(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_387(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_388(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_389(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_390(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_391(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_392(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_393(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_394(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_395(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_396(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_397(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_398(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_399(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_400(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_401(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_402(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_403(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_404(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_405(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_406(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_407(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_408(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_409(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_410(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_411(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_412(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_413(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_414(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_415(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_416(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_417(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_418(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_419(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_420(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_421(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_422(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_423(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_424(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_425(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_426(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_427(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_428(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_429(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_430(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_431(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_432(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_433(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_434(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_435(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_436(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_437(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_438(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_439(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_440(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_441(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_442(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_443(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_444(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_445(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_446(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_447(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_448(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_449(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_450(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_451(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_452(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_453(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_454(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_455(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_456(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_457(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_458(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_459(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_460(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_461(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_462(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_463(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_464(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_465(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_466(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_467(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_468(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_469(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_470(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_471(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_472(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_473(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_474(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_475(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_476(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_477(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_478(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_479(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_480(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_481(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_482(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_483(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_484(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_485(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_486(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_487(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_488(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_489(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_490(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_491(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_492(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_493(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_494(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_495(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_496(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_497(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_498(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_499(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_500(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_501(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_502(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_503(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_504(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_505(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_506(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_507(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_508(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_509(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_510(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_511(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_512(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_513(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_514(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_515(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_516(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_517(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_518(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_519(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_520(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_521(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_522(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_523(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_524(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_525(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_526(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_527(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_528(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_529(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_530(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_531(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_532(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_533(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_534(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_535(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_536(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_537(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_538(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_539(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_540(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_541(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_542(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_543(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_544(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_545(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_546(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_547(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_548(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_549(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_550(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_551(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_552(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_553(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_554(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_555(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_556(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_557(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_558(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_559(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_560(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_561(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_562(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_563(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_564(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_565(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_566(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_567(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_568(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_569(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_570(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_571(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_572(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_573(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_574(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_575(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_576(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_577(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_578(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_579(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_580(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_581(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_582(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_583(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_584(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_585(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_586(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_587(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_588(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_589(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_590(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_591(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_592(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_593(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_594(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_595(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_596(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_597(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_598(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_599(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_600(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_601(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_602(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_603(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_604(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_605(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_606(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_607(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_608(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_609(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_610(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_611(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_612(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_613(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_614(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_615(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_616(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_617(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_618(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_619(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_620(void) { return bf1_pointer_stub(); }
+static ABI int64_t bf1_stub_621(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_622(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_623(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_624(void) { return bf1_zero_stub(); }
+static ABI int64_t bf1_stub_625(void) { return bf1_zero_stub(); }
 
 static const RuntimeExport exports[] = {
     {"sceGnmSetEmbeddedVsShader",bf1_stub_0},
