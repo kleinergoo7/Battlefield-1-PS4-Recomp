@@ -925,9 +925,12 @@ static ABI int32_t mouse_close(int32_t handle) { (void)handle; return 0; }
 static ABI int32_t audio_in_open(void) { return AUDIO_IN_NOT_OPENED; }
 static int32_t bf1_next_handle=1;
 static ABI int32_t bf1_handle(void) { return bf1_next_handle++; }
+static ABI int32_t np_party_not_in_party(void) { return 0x80552506; }
 
 
 static const RuntimeExport exports[]={
+    {"sceNpPartyGetMembers",np_party_not_in_party},
+    {"sceNpPartyGetMemberInfo",np_party_not_in_party},
     {"sceNpWebApiCreateHandle",bf1_handle}, {"sceNpWebApiCreateRequest",bf1_handle},
     {"sceNpCreateRequest",bf1_handle}, {"sceNpCreateAsyncRequest",bf1_handle},
     {"sceNpAuthCreateAsyncRequest",bf1_handle}, {"sceNpLookupCreateTitleCtx",bf1_handle},
