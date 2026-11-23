@@ -130,7 +130,7 @@ static ABI int32_t launch_browser(void) { note("SystemService: web browser reque
 
 /* ---- NetCtl / Net / Http / Ssl: no network ---- */
 static int32_t net_errno;
-static ABI int32_t net_init(void) { return 0; }
+static ABI int32_t net_init(void) { if (getenv("SPARTAN_NPDBG")) fprintf(stderr,"[NP] sceNetInit\n"); return 0; }
 static ABI int32_t net_term(void) { return 0; }
 static ABI int32_t *net_errno_loc(void) { return &net_errno; }
 static ABI int32_t net_pool_create(const char *name,int size,int flags) { (void)name; (void)size; (void)flags; return new_id(); }
@@ -943,6 +943,7 @@ static NpStateCallback np_state_callback;
 static void *np_state_userdata;
 static int np_state_pending;
 static ABI int32_t np_register_state(void *callback,void *userdata) {
+    if (getenv("SPARTAN_NPDBG")) fprintf(stderr,"[NP] RegisterStateCallback cb=%p\n",callback);
     if (!callback) return NP_INVALID_ARGUMENT;
     np_state_callback=(NpStateCallback)callback;
     np_state_userdata=userdata;
@@ -950,9 +951,11 @@ static ABI int32_t np_register_state(void *callback,void *userdata) {
     return 0;
 }
 static ABI int32_t np_check_callback(void) {
+    if (getenv("SPARTAN_NPDBG")) fprintf(stderr,"[NP] CheckCallback\n");
     if (np_state_pending && np_state_callback) {
         np_state_pending=0;
-        np_state_callback(1,1,NULL,np_state_userdata); /* user 1, SignedOut */
+        { static int env_checked; static int uid=1; if (!env_checked) { env_checked=1; const char *v=getenv("SPARTAN_NP_UID"); if (v) uid=atoi(v); }
+          np_state_callback(uid,1,NULL,np_state_userdata); } /* SignedOut */
     }
     return 0;
 }
