@@ -32,6 +32,29 @@ static ABI void guest_set_heap_api(void **api) {
     application_heap_api=api;
     puts("Runtime: application heap API registered");
 }
+static ABI void libc_heap_trace_info(void *info) {
+    if (info) memset(info, 0, 24);
+}
+static ABI int32_t random_bytes(unsigned char *buffer, uint64_t size) {
+    if (!buffer || size > 1024) return 0x80020000;
+    for (uint64_t i = 0; i < size; ++i) buffer[i] = (unsigned char)rand();
+    return 0;
+}
+static ABI int32_t mutexattr_setpshared(void *attr, int pshared) {
+    (void)attr; (void)pshared; return 0;
+}
+static ABI int64_t bf1_private_stub(void) { return 0; }
+static void bf1_dummy_virtual(void) {}
+static void *bf1_dummy_vtable[] = {
+    bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
+    bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
+};
+static struct { void **vtable; } bf1_dummy_singleton = { bf1_dummy_vtable };
+static ABI int32_t bf1_dlsym(int32_t handle,const char *symbol,void **result) {
+    printf("Runtime: sceKernelDlsym(handle=%d, symbol=%s)\n",handle,symbol ? symbol : "(null)");
+    if (result) *result=&bf1_dummy_singleton;
+    return 0;
+}
 void **runtime_application_heap_api(void) { return application_heap_api; }
 void runtime_set_module_tls(uint64_t module, const void *data, uint64_t filesz, uint64_t memsz) {
     if (module<2 || module>=TLS_MODULES) { fputs("STOP: unsupported TLS module id\n",stderr); exit(21); }
@@ -207,6 +230,27 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "8G2LB+A3rzg#libc")) return (uintptr_t)guest_atexit;
     if (!strcmp(name, "tsvEmnenz48#libc")) return (uintptr_t)guest_cxa_atexit;
     if (!strcmp(name, "uMei1W9uyNo#libc")) return (uintptr_t)guest_libc_exit;
+    if (!strcmp(name, "NWtTN10cJzE#libSceLibcInternalExt")) return (uintptr_t)libc_heap_trace_info;
+    if (!strcmp(name, "PI7jIZj4pcE#libSceRandom")) return (uintptr_t)random_bytes;
+    if (!strcmp(name, "LwG8g3niqwA#libkernel")) return (uintptr_t)bf1_dlsym;
+    if (!strcmp(name, "EXv3ztGqtDM#libkernel")) return (uintptr_t)mutexattr_setpshared;
+    if (!strcmp(name, "2uT9ySAHVKE#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "4XQM-UBEYpM#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "7EUw1e-hbNY#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "7pPMWplBcGQ#libJavaScriptCore") ||
+        !strcmp(name, "B3XayzEfnsg#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "JKBJn3GL0JE#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "L+uHfIz5ao8#libJavaScriptCore") ||
+        !strcmp(name, "LuHdTFPohDE#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "O8DunroJtKc#libJavaScriptCore") ||
+        !strcmp(name, "Soq7bosBHpo#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail") ||
+        !strcmp(name, "Zd-z5tJxpJw#Extension.Twinkle.Codec_gen4b_retail") ||
+        !strcmp(name, "fJgP+wqifno#libSceDiscMap") ||
+        !strcmp(name, "mgjWUOKHkJg#libJavaScriptCore") ||
+        !strcmp(name, "qiOZEn26Kds#EAWebKit") ||
+        !strcmp(name, "uaS4VsGOM7Q#Extension.Twinkle.Codec_gen4b_retail"))
+        return (uintptr_t)bf1_private_stub;
     /* Not imported by the current eboot, exposed for ABI tests/future use. */
     if (!strcmp(name, "H2e8t5ScQGc#libc")) return (uintptr_t)guest_finalize;
     if (!strcmp(name, "3GPpjQdAMTw#libc")) return (uintptr_t)guard_acquire;
@@ -237,6 +281,8 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (memory) return memory;
     uintptr_t kernel = runtime_kernel_resolve(name);
     if (kernel) return kernel;
+    uintptr_t eventflag = runtime_eventflag_resolve(name);
+    if (eventflag) return eventflag;
     uintptr_t services = runtime_services_resolve(name);
     if (services) return services;
     uintptr_t ajm = runtime_ajm_resolve(name);
@@ -257,6 +303,7 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
 }
 static const struct { const char *nid, *symbol; } import_names[]={
 #include "import_names.inc"
+#include "import_names_bf1.inc"
 };
 /* Symbol name for a scoped NID, or NULL when this eboot/libc never imports it. */
 const char *runtime_symbol(const char *nid) {

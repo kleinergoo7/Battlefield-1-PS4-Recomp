@@ -19,6 +19,7 @@ from prepare import parse_self, read_self, span, unpack
 from link_libc import encode_id
 
 DEFAULT_MODULES = ('libc.prx', 'libSceFios2.prx')
+HOST_OVERRIDES = {'LwG8g3niqwA'}
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]
 
 
@@ -128,7 +129,13 @@ def link(game, out, module_names=DEFAULT_MODULES):
     fs_patched = patch_fs_loads(image, main['ph'], 0)
     tls_module = 2
     for filename in module_names:
-        m = module(game / 'sce_module' / filename)
+        candidate = Path(filename)
+        if candidate.is_absolute():
+            m = module(candidate)
+        elif (game / candidate).exists():
+            m = module(game / candidate)
+        else:
+            m = module(game / 'sce_module' / candidate)
         loads = [p for p in m['ph'] if p['type'] in (1, 0x61000010)]
         modsize = max(p['vaddr'] + p['memsz'] for p in loads)
         if base + modsize > 512 * 1024 * 1024:
@@ -198,6 +205,9 @@ def link(game, out, module_names=DEFAULT_MODULES):
 
     bindings, unresolved = [], []
     for identity, index in identities.items():
+        if identity and identity[0] in HOST_OVERRIDES:
+            unresolved.append(names[index])
+            continue
         found = exports.get(identity)
         if not found and identity and identity[1][0] == 'libSceLibcInternal':
             candidates = by_nid.get((identity[0], 'libc'), [])

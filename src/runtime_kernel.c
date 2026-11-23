@@ -160,6 +160,15 @@ static const char *guest_argv[]={"eboot.bin",NULL};
 static ABI int32_t get_argc(void) { return 1; }
 static ABI const char **get_argv(void) { return guest_argv; }
 /* Only the game and its bundled modules exist; nothing was loaded at run time. */
+static int32_t next_module_handle=1;
+static ABI int32_t load_start_module(const char *filename,uint64_t args,const void *argp,
+                                     uint32_t flags,const void *opt,int32_t *result) {
+    (void)args; (void)argp; (void)flags; (void)opt;
+    printf("Runtime: sceKernelLoadStartModule(%s)\n",filename ? filename : "(null)");
+    if (result) *result=0;
+    if (filename && strstr(filename,"Engine.BuildInfo")) return 2;
+    return next_module_handle++;
+}
 static ABI int32_t stop_unload_module(int32_t handle,uint64_t args,const void *argp,uint32_t flags,const void *opt,int32_t *result) {
     (void)args; (void)argp; (void)flags; (void)opt; (void)result;
     printf("Runtime: sceKernelStopUnloadModule(%d): no such module\n",handle);
@@ -170,6 +179,32 @@ static ABI int32_t module_info_from_addr(uint64_t address,int32_t flags,void *in
     if (flags>=3) return ERR(22);
     if (!info) return ERR(14);
     return ERR(3); /* ESRCH: the runtime keeps no module records */
+}
+static ABI int32_t get_module_list(int32_t *handles,uint64_t count,uint64_t *out_count) {
+    if (!handles || !out_count) return ERR(14);
+    uint64_t written=0;
+    if (written<count) handles[written]=0, ++written;
+    if (written<count) handles[written]=1, ++written;
+    *out_count=written;
+    return 0;
+}
+static ABI int32_t module_info_for_unwind(uint64_t address,int32_t flags,void *info) {
+    (void)address;
+    if (flags>=3 || !info) return ERR(22);
+    memset(info,0,304);
+    *(uint64_t*)info=304;
+    strncpy((char*)info+8,"eboot.bin",255);
+    return 0;
+}
+static ABI int32_t get_module_info(int32_t handle,void *info) {
+    (void)handle;
+    if (!info) return ERR(14);
+    uint64_t declared=*(uint64_t*)info;
+    if (declared && declared!=352) return ERR(22);
+    memset(info,0,352);
+    *(uint64_t*)info=352;
+    strncpy((char*)info+8,"eboot.bin",255);
+    return 0;
 }
 static ABI int32_t kernel_mlock(const void *address,uint64_t size) { (void)address; (void)size; return 0; }
 /* libc's C++ exception unwinder. The game does not throw (no __cxa_throw import): unwinding
@@ -325,8 +360,13 @@ static const RuntimeExport exports[]={
     {"sceKernelDebugRaiseException",raise_exception},
     {"sceKernelDebugRaiseExceptionOnReleaseMode",raise_exception},
     {"sceKernelPrintBacktraceWithModuleInfo",print_backtrace},
-    {"getargc",get_argc}, {"getargv",get_argv}, {"sceKernelStopUnloadModule",stop_unload_module},
-    {"sceKernelGetModuleInfoFromAddr",module_info_from_addr}, {"sceKernelMlock",kernel_mlock},
+    {"getargc",get_argc}, {"getargv",get_argv},
+    {"sceKernelLoadStartModule",load_start_module}, {"sceKernelStopUnloadModule",stop_unload_module},
+    {"sceKernelGetModuleInfoFromAddr",module_info_from_addr},
+    {"sceKernelGetModuleList",get_module_list},
+    {"sceKernelGetModuleInfoForUnwind",module_info_for_unwind},
+    {"sceKernelGetModuleInfo",get_module_info},
+    {"sceKernelMlock",kernel_mlock},
     {"__elf_phdr_match_addr",elf_phdr_match_addr}, {"_is_signal_return",is_signal_return},
     {"__pthread_cxa_finalize",pthread_cxa_finalize}, {"sigreturn",unwind_resume},
     {"__Ux86_64_setcontext",unwind_resume},

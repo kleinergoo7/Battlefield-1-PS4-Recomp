@@ -926,6 +926,9 @@ static ABI int32_t audio_in_open(void) { return AUDIO_IN_NOT_OPENED; }
 
 
 static const RuntimeExport exports[]={
+    {"sceCoredumpRegisterCoredumpHandler",ok_void},
+    {"sceCoredumpUnregisterCoredumpHandler",ok_void},
+    {"sceCoredumpWriteUserData",ok_void},
     {"sceUserServiceInitialize",user_initialize}, {"sceUserServiceTerminate",user_terminate},
     {"sceUserServiceGetInitialUser",user_initial}, {"sceUserServiceGetLoginUserIdList",user_list},
     {"sceUserServiceGetUserName",user_name}, {"sceUserServiceGetEvent",user_event},

@@ -244,6 +244,20 @@ static ABI int32_t attr_get_stack(ThreadAttr **slot,uint64_t *size) {
     if (!a || !size) return ERR(22);
     *size=a->stack; return 0;
 }
+static ABI int32_t attr_get_stack_full(ThreadAttr **slot,void **address,uint64_t *size) {
+    if (address) *address=NULL;
+    return attr_get_stack(slot,size);
+}
+static ABI int32_t attr_set_stack_addr(ThreadAttr **slot,void *address,uint64_t size) {
+    (void)address;
+    return attr_set_stack(slot,size);
+}
+static ABI int32_t attr_get_stack_addr(ThreadAttr **slot,void **address) {
+    (void)slot;
+    if (!address) return ERR(22);
+    *address=NULL;
+    return 0;
+}
 static ABI int32_t attr_set_detach(ThreadAttr **slot,int state) {
     ThreadAttr *a=find_attr(slot);
     if (!a || (state!=0 && state!=1)) return ERR(22);
@@ -485,6 +499,15 @@ static ABI __attribute__((noreturn)) void thread_exit(void *value) {
     exit_longjmp(t);
 }
 static ABI int32_t thread_yield(void) { runtime_thread_count_yield(0); sched_yield(); return 0; }
+static ABI int32_t thread_get_schedparam(GuestThread *t,int *policy,int *param) {
+    (void)t;
+    if (policy) *policy=0;
+    if (param) *param=0x2BC;
+    return 0;
+}
+static ABI int32_t thread_set_schedparam(GuestThread *t,const int *param) {
+    (void)t; (void)param; return 0;
+}
 static ABI int32_t thread_get_prio(GuestThread *t,int *prio) {
     if (!find_thread(t)) return ERR(3);
     if (!prio) return ERR(22);
@@ -533,10 +556,13 @@ uintptr_t runtime_thread_resolve(const char *name) {
         {"4+h9EzwKF4I#libkernel",attr_set_policy}, {"DzES9hQF4f4#libkernel",attr_set_param},
         {"3qxgM4ezETA#libkernel",attr_set_affinity}, {"eXbUSpEaTsA#libkernel",attr_set_inherit},
         {"JaRMy+QcpeU#libkernel",attr_get_detach}, {"-fA+7ZlGDQs#libkernel",attr_get_stack},
+        {"-quPa4SEJUw#libkernel",attr_get_stack_full}, {"Bvn74vj6oLo#libkernel",attr_set_stack_addr},
+        {"Ru36fiTtJzA#libkernel",attr_get_stack_addr},
         {"FXPWHNk8Of0#libkernel",attr_get_param}, {"El+cQ20DynU#libkernel",attr_set_guard},
         {"6UgtwV+0zb4#libkernel",thread_create}, {"onNY9Byn-W8#libkernel",thread_join},
         {"4qGrR6eoP9Y#libkernel",thread_detach}, {"3kg7rT0NQIs#libkernel",thread_exit},
         {"T72hz6ffq08#libkernel",thread_yield}, {"1tKyG7RlMJo#libkernel",thread_get_prio},
+        {"P41kTWUS3EI#libkernel",thread_get_schedparam}, {"oIRFTjoILbg#libkernel",thread_set_schedparam},
         {"W0Hpm2X0uPE#libkernel",thread_set_prio}, {"bt3CTBKmGyI#libkernel",thread_set_affinity}, {"rcrVFJsQWRY#libkernel",thread_get_affinity},
         {"GBUY7ywdULE#libkernel",thread_rename}, {"3PtV6p3QNX4#libkernel",thread_equal},
         {"wtkt-teR1so#libkernel",posix_attr_init}, {"zHchY8ft5pk#libkernel",posix_attr_destroy},
