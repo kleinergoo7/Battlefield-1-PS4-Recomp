@@ -926,6 +926,37 @@ static ABI int32_t audio_in_open(void) { return AUDIO_IN_NOT_OPENED; }
 static int32_t bf1_next_handle=1;
 static ABI int32_t bf1_handle(void) { return bf1_next_handle++; }
 static ABI int32_t np_party_not_in_party(void) { return 0x80552506; }
+typedef void (ABI *NpStateCallback)(int32_t,int32_t,void*,void*);
+static NpStateCallback np_state_callback;
+static void *np_state_userdata;
+static int np_state_pending;
+static ABI int32_t np_register_state(void *callback,void *userdata) {
+    if (!callback) return NP_INVALID_ARGUMENT;
+    np_state_callback=(NpStateCallback)callback;
+    np_state_userdata=userdata;
+    np_state_pending=1;
+    return 0;
+}
+static ABI int32_t np_check_callback(void) {
+    if (np_state_pending && np_state_callback) {
+        np_state_pending=0;
+        np_state_callback(1,1,NULL,np_state_userdata); /* user 1, SignedOut */
+    }
+    return 0;
+}
+static ABI int32_t np_account_id(int32_t user,uint64_t *account_id) {
+    (void)user; if (account_id) *account_id=0; return NP_SIGNED_OUT;
+}
+static ABI int32_t np_country(int32_t user,void *out) {
+    (void)user; if (out) memset(out,0,4); return NP_SIGNED_OUT;
+}
+static ABI int32_t np_language(int32_t user,void *out) {
+    (void)user; if (out) memset(out,0,8); return NP_SIGNED_OUT;
+}
+static ABI int32_t np_user_by_online_id(const void *online_id,int32_t *user_id) {
+    (void)online_id; if (user_id) *user_id=-1; return NP_SIGNED_OUT;
+}
+static ABI int32_t np_webapi_not_signed_in(void) { return 0x80552907; }
 
 
 static const RuntimeExport exports[]={
@@ -992,9 +1023,12 @@ static const RuntimeExport exports[]={
     {"sceHttpGetStatusCode",http_fail}, {"sceHttpGetResponseContentLength",http_fail},
     {"sceHttpReadData",http_fail},
     {"sceNpGetState",np_state}, {"sceNpGetOnlineId",np_signed_out}, {"sceNpGetNpId",np_signed_out},
-    {"sceNpRegisterStateCallback",np_register}, {"sceNpUnregisterStateCallback",ok_void},
+    {"sceNpGetAccountId",np_account_id}, {"sceNpGetAccountCountry",np_country},
+    {"sceNpGetAccountLanguage",np_language}, {"sceNpGetUserIdByOnlineId",np_user_by_online_id},
+    {"sceNpWebApiSendRequest2",np_webapi_not_signed_in},
+    {"sceNpRegisterStateCallback",np_register_state}, {"sceNpUnregisterStateCallback",ok_void},
     {"sceNpRegisterGamePresenceCallback",np_register_void}, {"sceNpRegisterPlusEventCallback",np_register},
-    {"sceNpUnregisterPlusEventCallback",ok_void}, {"sceNpCheckCallback",ok_void},
+    {"sceNpUnregisterPlusEventCallback",ok_void}, {"sceNpCheckCallback",np_check_callback},
     {"sceNpSetNpTitleId",ok_void}, {"sceNpNotifyPlusFeature",ok_void}, {"sceNpSetContentRestriction",ok_void},
     {"sceNpCreateAsyncRequest",np_request}, {"sceNpDeleteRequest",ok_void}, {"sceNpAbortRequest",ok_void},
     {"sceNpPollAsync",np_poll}, {"sceNpCheckNpAvailability",np_signed_out},
