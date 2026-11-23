@@ -373,6 +373,9 @@ static void dump_poll_target(void) {
     snprintf(line,sizeof(line),"  POLL obj=%p vtable=%p fn=%p img=%p fn_img=%lld\n",
              (void*)obj,(void*)vt,(void*)fn,(void*)image,(long long)((int64_t)fn-(int64_t)image));
     ssize_t w_=write(2,line,strlen(line)); (void)w_;
+    uint64_t wc=*(uint64_t *)(image+0x4d3efc0), ctx=*(uint64_t *)(image+0x3e6ada8);
+    snprintf(line,sizeof(line),"  HANDLE global 0x4d3efc0=%p 0x3e6ada8=%p\n",(void*)wc,(void*)ctx);
+    w_=write(2,line,strlen(line)); (void)w_;
 }
 static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); }
 static void watchdog(int sig, siginfo_t *info, void *context) {

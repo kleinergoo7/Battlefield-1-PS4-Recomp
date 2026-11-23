@@ -140,6 +140,9 @@ static ABI int32_t net_epoll_create(const char *name,int flags) { (void)name; (v
 static ABI int32_t net_epoll_destroy(int id) { (void)id; return 0; }
 static ABI int32_t net_resolver_create(const char *name,int pool,int flags) { (void)name; (void)pool; (void)flags; return new_id(); }
 static ABI int32_t net_resolver_destroy(int id) { (void)id; return 0; }
+/* shadPS4 returns ORBIS_NET_ERROR_RESOLVER_ENODNS for offline DNS; the game
+ * uses that failure to advance past the analytics probe into the WebBrowser. */
+static ABI int32_t net_resolver_ntoa(void) { net_errno=225; return (int32_t)0x804101e1; }
 static ABI uint16_t net_htons(uint16_t v) { return htons(v); }
 static ABI uint16_t net_ntohs(uint16_t v) { return ntohs(v); }
 static ABI uint32_t net_htonl(uint32_t v) { return htonl(v); }
@@ -1011,7 +1014,7 @@ static const RuntimeExport exports[]={
     {"sceNetGetsockname",net_unreachable}, {"sceNetShutdown",net_unreachable},
     {"sceNetSocketClose",net_unreachable}, {"sceNetSocketAbort",net_unreachable},
     {"sceNetEpollControl",net_unreachable}, {"sceNetEpollWait",net_unreachable}, {"sceNetEpollAbort",net_unreachable},
-    {"sceNetResolverStartNtoa",net_unreachable}, {"sceNetResolverStartAton",net_unreachable},
+    {"sceNetResolverStartNtoa",net_resolver_ntoa}, {"sceNetResolverStartAton",net_resolver_ntoa},
     {"sceNetCtlGetState",netctl_state}, {"sceNetCtlGetInfo",netctl_info},
     {"sceNetCtlRegisterCallback",netctl_register}, {"sceNetCtlCheckCallback",netctl_check},
     {"sceNetCtlUnregisterCallback",netctl_unregister}, {"sceNetCtlGetNatInfo",netctl_nat},

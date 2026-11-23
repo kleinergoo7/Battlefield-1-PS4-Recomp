@@ -70,6 +70,21 @@ static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q#
 
 static ABI int64_t bf1_jsc_noop(void) { return 0; } /* NULL-safe JSStringRelease */
 
+/* Diagnostic: log JS callback registrations so we can identify addTimeout's
+ * native implementation. Signature: JSObjectMakeFunctionWithCallback(ctx, JSStringRef name,
+ * JSObjectCallAsFunctionCallback fn). */
+typedef void *(ABI *JsMakeFuncCb)(void *,void *,void *);
+typedef size_t (ABI *JsGetUtf8)(void *,char *,size_t);
+static void *(ABI jsc_makefunccb)(void *ctx,void *name,void *fn) {
+    static JsMakeFuncCb real;
+    static JsGetUtf8 utf8;
+    if (!real) real=(JsMakeFuncCb)(probe_image_base()+0x512ced0);
+    if (!utf8) utf8=(JsGetUtf8)(probe_image_base()+0x5133180);
+    char buf[128]={0};
+    if (name) utf8(name,buf,sizeof(buf)-1);
+    fprintf(stderr,"[JSCB] %s -> %p\n",buf,fn);
+    return real(ctx,name,fn);
+}
 static void bf1_dummy_virtual(void) {}
 static void *bf1_dummy_vtable[] = {
     bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
@@ -265,6 +280,7 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
         return (uintptr_t)bf1_buildinfo_singleton;
     /* JSStringRelease receives NULL when JSValueToStringCopy fails; shadPS4's
      * stub is a no-op, so make it NULL-safe even with real JSC exports active. */
+    if (getenv("SPARTAN_JSCB") && name && !strcmp(name,"Tm9bXhmwlMA#libJavaScriptCore")) return (uintptr_t)jsc_makefunccb;
     if (name && !strcmp(name,"Nm-U+BAjCkY#libJavaScriptCore")) return (uintptr_t)bf1_jsc_noop;
     /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs. */
     if (getenv("SPARTAN_NO_JSC_STUBS") && name &&
