@@ -26,7 +26,22 @@ Before that, the following were added:
 
 `Engine.BuildInfo_gen4b_retail.prx` is now linked as module 2 at `0x5110000`.
 
-## Current blocker
+## Updated progress (later iterations)
+
+After the singleton fix, the game progressed much further through initialization:
+
+- trophies loaded (32), multiple system modules loaded, audio port opened,
+  several guest threads created, direct memory allocated (2 MiB).
+- All remaining named imports were given a fallback stub table
+  (`src/runtime_bf1_stubs.c`, 626 entries) placed **after** the GPU resolver so
+  GNM/VideoOut still bind to shadPS4.
+
+Current failure is a guest fault at offset `0xa9e4`, inside a recursive
+copy-like function, with `rsp == rbp` at the thread stack top. Likely a blanket
+stub returned 0 where a pointer/size was expected, feeding a bad value into the
+copy routine.
+
+## Original blocker (resolved)
 
 After game entry, BF1's lazy singleton initializer:
 

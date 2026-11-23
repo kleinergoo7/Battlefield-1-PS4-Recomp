@@ -926,6 +926,22 @@ static ABI int32_t audio_in_open(void) { return AUDIO_IN_NOT_OPENED; }
 
 
 static const RuntimeExport exports[]={
+    {"sceSystemGestureOpen",ok_void}, {"sceSystemGestureClose",ok_void},
+    {"sceSystemGestureCreateTouchRecognizer",ok_void},
+    {"sceSystemGestureAppendTouchRecognizer",ok_void},
+    {"sceSystemGestureRemoveTouchRecognizer",ok_void},
+    {"sceSystemGestureInitializePrimitiveTouchRecognizer",ok_void},
+    {"sceSystemGestureFinalizePrimitiveTouchRecognizer",ok_void},
+    {"sceSystemGestureResetPrimitiveTouchRecognizer",ok_void},
+    {"sceSystemGestureResetTouchRecognizer",ok_void},
+    {"sceSystemGestureUpdatePrimitiveTouchRecognizer",ok_void},
+    {"sceSystemGestureUpdateTouchRecognizer",ok_void},
+    {"sceSystemGestureGetTouchEvents",ok_void},
+    {"scePlayGoGetLanguageMask",ok_void}, {"scePlayGoGetProgress",ok_void},
+    {"scePlayGoSetInstallSpeed",ok_void}, {"scePlayGoOpen",ok_void},
+    {"scePlayGoTerminate",ok_void}, {"scePlayGoGetToDoList",ok_void},
+    {"scePlayGoClose",ok_void}, {"scePlayGoGetInstallSpeed",ok_void},
+    {"scePlayGoInitialize",ok_void}, {"scePlayGoGetLocus",ok_void},
     {"sceCoredumpRegisterCoredumpHandler",ok_void},
     {"sceCoredumpUnregisterCoredumpHandler",ok_void},
     {"sceCoredumpWriteUserData",ok_void},

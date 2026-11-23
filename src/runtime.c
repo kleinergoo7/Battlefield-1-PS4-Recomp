@@ -50,6 +50,7 @@ static void *bf1_dummy_vtable[] = {
     bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual, bf1_dummy_virtual,
 };
 static struct { void **vtable; } bf1_dummy_singleton = { bf1_dummy_vtable };
+static ABI void *bf1_buildinfo_singleton(void) { return &bf1_dummy_singleton; }
 static ABI int32_t bf1_dlsym(int32_t handle,const char *symbol,void **result) {
     printf("Runtime: sceKernelDlsym(handle=%d, symbol=%s)\n",handle,symbol ? symbol : "(null)");
     if (result) *result=&bf1_dummy_singleton;
@@ -234,6 +235,8 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "PI7jIZj4pcE#libSceRandom")) return (uintptr_t)random_bytes;
     if (!strcmp(name, "LwG8g3niqwA#libkernel")) return (uintptr_t)bf1_dlsym;
     if (!strcmp(name, "EXv3ztGqtDM#libkernel")) return (uintptr_t)mutexattr_setpshared;
+    if (!strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail"))
+        return (uintptr_t)bf1_buildinfo_singleton;
     if (!strcmp(name, "2uT9ySAHVKE#Extension.Twinkle.Codec_gen4b_retail") ||
         !strcmp(name, "4XQM-UBEYpM#Extension.Twinkle.Codec_gen4b_retail") ||
         !strcmp(name, "7EUw1e-hbNY#Extension.Twinkle.Codec_gen4b_retail") ||
@@ -244,7 +247,6 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
         !strcmp(name, "LuHdTFPohDE#Extension.Twinkle.Codec_gen4b_retail") ||
         !strcmp(name, "O8DunroJtKc#libJavaScriptCore") ||
         !strcmp(name, "Soq7bosBHpo#Extension.Twinkle.Codec_gen4b_retail") ||
-        !strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail") ||
         !strcmp(name, "Zd-z5tJxpJw#Extension.Twinkle.Codec_gen4b_retail") ||
         !strcmp(name, "fJgP+wqifno#libSceDiscMap") ||
         !strcmp(name, "mgjWUOKHkJg#libJavaScriptCore") ||
@@ -299,7 +301,9 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (save) return save;
     uintptr_t file = runtime_file_resolve(name);
     if (file) return file;
-    return spartanportgpu_resolve(name);
+    uintptr_t gpu = spartanportgpu_resolve(name);
+    if (gpu) return gpu;
+    return runtime_bf1_stubs_resolve(name);
 }
 static const struct { const char *nid, *symbol; } import_names[]={
 #include "import_names.inc"

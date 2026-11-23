@@ -180,6 +180,8 @@ static ABI int32_t module_info_from_addr(uint64_t address,int32_t flags,void *in
     if (!info) return ERR(14);
     return ERR(3); /* ESRCH: the runtime keeps no module records */
 }
+static ABI int32_t neo_mode(void) { return 0; }
+static ABI int32_t cpu_mode(void) { return 0; }
 static ABI int32_t get_module_list(int32_t *handles,uint64_t count,uint64_t *out_count) {
     if (!handles || !out_count) return ERR(14);
     uint64_t written=0;
@@ -364,6 +366,9 @@ static const RuntimeExport exports[]={
     {"sceKernelLoadStartModule",load_start_module}, {"sceKernelStopUnloadModule",stop_unload_module},
     {"sceKernelGetModuleInfoFromAddr",module_info_from_addr},
     {"sceKernelGetModuleList",get_module_list},
+    {"sceKernelGetCpumode",cpu_mode},
+    {"sceKernelIsNeoMode",neo_mode}, {"sceKernelHasNeoMode",neo_mode},
+    {"sceKernelIsAuthenticNeo",neo_mode}, {"sceKernelIsDevKitMode",neo_mode},
     {"sceKernelGetModuleInfoForUnwind",module_info_for_unwind},
     {"sceKernelGetModuleInfo",get_module_info},
     {"sceKernelMlock",kernel_mlock},
