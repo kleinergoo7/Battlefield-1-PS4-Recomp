@@ -217,12 +217,55 @@ static void note_area(const char *guest) {
     if (cronos!=runtime_file_cronos()) printf("Runtime: area %s, %s Cronos\n",base,cronos ? "in" : "out of");
     __atomic_store_n(&area_cronos,cronos,__ATOMIC_RELAXED);
 }
+static int nocase_equal(const char *a,const char *b) {
+    for (;*a && *b;++a,++b) if (tolower((unsigned char)*a)!=tolower((unsigned char)*b)) return 0;
+    return *a==*b;
+}
+/* PS4 paths are case-insensitive. Correct each component against the host
+ * directory when the exact spelling is missing (BF1 asks for .../Gen4b/Loc,
+ * while the dump contains .../Gen4b/loc). */
+static void fix_path_case(char *path,size_t capacity) {
+    if (*path!='/') return;
+    char work[1024];
+    snprintf(work,sizeof(work),"%s",path+1);
+    char current[1024]="";
+    char *component=strtok(work,"/");
+    while (component) {
+        size_t used=strlen(current);
+        if (used+1+strlen(component)>=sizeof(current)) return;
+        current[used]='/'; strcpy(current+used+1,component);
+        struct stat st;
+        if (stat(current,&st)!=0) {
+            char *slash=strrchr(current,'/');
+            if (slash) {
+                *slash='\0';
+                DIR *dir=opendir(current);
+                if (dir) {
+                    struct dirent *entry;
+                    while ((entry=readdir(dir))) {
+                        if (nocase_equal(entry->d_name,component)) {
+                            if (slash+1+strlen(entry->d_name)<current+sizeof(current))
+                                strcpy(slash+1,entry->d_name);
+                            break;
+                        }
+                    }
+                    closedir(dir);
+                }
+                *slash='/';
+            }
+        }
+        component=strtok(NULL,"/");
+    }
+    snprintf(path,capacity,"%s",current);
+}
+
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
 static int64_t do_open(const char *guest,int flags,int mode) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
+    fix_path_case(path,sizeof(path));
 #ifdef _WIN32
     /* Windows cannot open a directory as a CRT descriptor: directories are listings only. */
     (void)mode;
