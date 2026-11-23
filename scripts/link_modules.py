@@ -27,6 +27,7 @@ HOST_OVERRIDES = {
     'IOnSvHzqu6A',  # sceKernelSetEventFlag
     'JTvBflhYazQ',  # sceKernelWaitEventFlag
     '7uhBFWRAS60',  # sceKernelClearEventFlag
+    'Tm9bXhmwlMA',  # route JSObjectMakeFunctionWithCallback through runtime for tracing
 }
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]
 

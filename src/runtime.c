@@ -70,18 +70,61 @@ static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q#
 
 static ABI int64_t bf1_jsc_noop(void) { return 0; } /* NULL-safe JSStringRelease */
 
-/* Diagnostic: log JS callback registration names (SPARTAN_JSCB). */
+/* Diagnostic: wrap handleCall registration (SPARTAN_JSCB). */
 typedef void *(ABI *JsMakeFuncCb)(void *,void *,void *);
+typedef void *(ABI *JsCallAsFunc)(void *,void *,void *,size_t,void **,void **);
+typedef void *(ABI *JsToString)(void *,void *,void **);
 typedef size_t (ABI *JsGetUtf8)(void *,char *,size_t);
-static void *(ABI jsc_makefunccb)(void *ctx,void *name,void *fn) {
+static JsToString jsc_tostring;
+static JsGetUtf8 jsc_utf8;
+static JsCallAsFunc jsc_real_cb;
+typedef void *(ABI *JsGetProp)(void *,void *,void *,void **);
+typedef void *(ABI *JsStrCreate)(const char *);
+static JsGetProp jsc_getprop;
+static JsStrCreate jsc_strcreate;
+static void *(ABI jsc_handlecall)(void *ctx,void *fn_obj,void *self,size_t argc,void **argv,void **exc) {
+    fprintf(stderr,"[HCALL] entered argc=%zu\n",argc);
+    if (argc>=1 && argv && argv[0] && jsc_tostring) {
+        void *exc_slot=NULL;
+        void *s=jsc_tostring(ctx,argv[0],&exc_slot);
+        char buf[160]={0}; if (s&&jsc_utf8) jsc_utf8(s,buf,sizeof(buf)-1);
+        fprintf(stderr,"[HCALL] msg='%s'",buf);
+        if (argc>=2 && argv[1]) {
+            void *s2=jsc_tostring(ctx,argv[1],&exc_slot);
+            char buf2[1024]={0}; if (s2&&jsc_utf8) jsc_utf8(s2,buf2,sizeof(buf2)-1);
+            fprintf(stderr," arg1='%s'",buf2);
+        }
+        fprintf(stderr,"\n");
+    }
+    void *r=jsc_real_cb ? jsc_real_cb(ctx,fn_obj,self,argc,argv,exc) : NULL;
+    fprintf(stderr,"[HCALL] -> %p\n",r);
+    if (r && jsc_getprop && jsc_strcreate && jsc_tostring && jsc_utf8) {
+        const char *keys[]={"branchName","changeListNumber","env","buildId","version","envBranchName"};
+        for (unsigned k=0;k<sizeof(keys)/sizeof(keys[0]);++k) {
+            void *key=jsc_strcreate(keys[k]);
+            void *exc2=NULL;
+            void *val=jsc_getprop(ctx,r,key,&exc2);
+            if (val) {
+                void *sv=jsc_tostring(ctx,val,&exc2);
+                char vb[256]={0}; if (sv) jsc_utf8(sv,vb,sizeof(vb)-1);
+                fprintf(stderr,"[BINFO] %s='%s'\n",keys[k],vb);
+            }
+        }
+    }
+    return r;
+}
+void *(ABI jsc_makefunccb)(void *ctx,void *name,void *fn);
+void *(ABI jsc_makefunccb)(void *ctx,void *name,void *fn) {
+    fprintf(stderr,"[MAKEFUNC] entered ctx=%p name=%p fn=%p\n",ctx,name,fn);
     static JsMakeFuncCb real;
-    static JsGetUtf8 utf8;
     if (!real) real=(JsMakeFuncCb)(probe_image_base()+0x52bced0);
-    if (!utf8) utf8=(JsGetUtf8)(probe_image_base()+0x52b3180);
-    char buf[128]={0};
-    if (name) utf8(name,buf,sizeof(buf)-1);
-    fprintf(stderr,"[JSCB] %s -> %p\n",buf,fn);
-    return real(ctx,name,fn);
+    if (!jsc_utf8) jsc_utf8=(JsGetUtf8)(probe_image_base()+0x52c3180);
+    if (!jsc_tostring) jsc_tostring=(JsToString)(probe_image_base()+0x52c4c50);
+    if (!jsc_getprop) jsc_getprop=(JsGetProp)(probe_image_base()+0x52be200);
+    if (!jsc_strcreate) jsc_strcreate=(JsStrCreate)(probe_image_base()+0x52c2d60);
+    jsc_real_cb=(JsCallAsFunc)fn;
+    fprintf(stderr,"[MAKEFUNC] real=%p\n",(void*)real);
+    return real(ctx,name,(void *)jsc_handlecall);
 }
 static void bf1_dummy_virtual(void) {}
 static void *bf1_dummy_vtable[] = {
