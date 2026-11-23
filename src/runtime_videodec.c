@@ -2,6 +2,7 @@
  * Structures, sizes and the resource estimate follow shadPS4's videodec (GPL-2.0-or-later);
  * pictures larger than the game's frame buffer are an error code instead of an overflow. */
 #include "runtime.h"
+#include <stdlib.h>
 #include "gpu/spartanportgpu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,7 @@ typedef struct { AVCodecContext *codec; AVPacket *packet; AVFrame *frame, *nv12;
 static uint32_t align(uint32_t value, uint32_t to) { return (value+to-1)&~(to-1); }
 
 static ABI int32_t videodec_query(const ConfigInfo *config, ResourceInfo *out) {
+    if (getenv("SPARTAN_VIDEODBG")) fprintf(stderr,"[VID] query %dx%d dpb=%d\n",config?config->max_frame_width:0,config?config->max_frame_height:0,config?config->max_dpb_frame_count:0);
     if (!config || !out) return ERR_ARGUMENT_POINTER;
     if (config->this_size!=sizeof(*config) || out->this_size!=sizeof(*out)) return ERR_STRUCT_SIZE;
     int32_t width=config->max_frame_width, height=config->max_frame_height;
@@ -71,6 +73,7 @@ static ABI int32_t videodec_query(const ConfigInfo *config, ResourceInfo *out) {
     return 0;
 }
 static ABI int32_t videodec_create(const ConfigInfo *config, const ResourceInfo *resource, Ctrl *out) {
+    if (getenv("SPARTAN_VIDEODBG")) fprintf(stderr,"[VID] create\n");
     if (!config || !resource || !out) return ERR_ARGUMENT_POINTER;
     if (config->this_size!=sizeof(*config) || resource->this_size!=sizeof(*resource)) return ERR_STRUCT_SIZE;
     const AVCodec *codec=avcodec_find_decoder(AV_CODEC_ID_H264);
@@ -143,8 +146,8 @@ static int32_t check(Ctrl *ctrl, FrameBuffer *buffer, PictureInfo *info) {
 }
 static ABI int32_t videodec_decode(Ctrl *ctrl, const InputData *input, FrameBuffer *buffer, PictureInfo *info) {
     if (!input) return ERR_ARGUMENT_POINTER;
-    int32_t r=check(ctrl,buffer,info);
-    if (r) return r;
+    int32_t cr=check(ctrl,buffer,info);
+    if (cr) return cr;
     if (!input->au_data) return ERR_AU_POINTER;
     if (!input->au_size || input->au_size>INT32_MAX) return ERR_AU_SIZE;
     Decoder *d=ctrl->handle;
@@ -154,7 +157,9 @@ static ABI int32_t videodec_decode(Ctrl *ctrl, const InputData *input, FrameBuff
     int sent=avcodec_send_packet(d->codec,d->packet);
     if (sent==AVERROR_EOF) { avcodec_flush_buffers(d->codec); sent=avcodec_send_packet(d->codec,d->packet); } /* after a flush */
     d->packet->data=NULL; d->packet->size=0;
-    return sent<0 ? ERR_API_FAIL : receive(d,buffer,info);
+    int32_t r=sent<0 ? ERR_API_FAIL : receive(d,buffer,info);
+    if (getenv("SPARTAN_VIDEODBG")) fprintf(stderr,"[VID] decode au=%llu sent=%d ret=%d valid=%u\n",(unsigned long long)input->au_size,sent,r,info->is_valid);
+    return r;
 }
 /* One buffered picture per call; the game calls it until no picture comes back. */
 static ABI int32_t videodec_flush(Ctrl *ctrl, FrameBuffer *buffer, PictureInfo *info) {
