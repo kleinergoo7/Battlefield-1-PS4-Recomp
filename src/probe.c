@@ -255,6 +255,7 @@ static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
 /* ucontext gregs of IsaRegs.gpr (x86 numbering). */
 static const int isa_gregs[16]={REG_RAX,REG_RCX,REG_RDX,REG_RBX,REG_RSP,REG_RBP,REG_RSI,REG_RDI,
                                 REG_R8,REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15};
+static void dump_frames(ucontext_t *uc); /* defined below; used for fault stack walks */
 static void fault(int sig, siginfo_t *info, void *context) {
     if (sig == SIGTRAP && isa_table) {
         /* An int3 ISA site (RIP is past the CC byte); any other trap ends in the report below. */
@@ -302,12 +303,16 @@ static void fault(int sig, siginfo_t *info, void *context) {
         snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, info->si_addr);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
     snprintf(line,sizeof(line),
-             "  regs rip=%p rax=%p rbx=%p rcx=%p rdx=%p rdi=%p rsi=%p r8=%p r9=%p r10=%p rsp=%p\n",
+             "  regs rip=%p rax=%p rbx=%p rcx=%p rdx=%p rdi=%p rsi=%p r8=%p r9=%p r10=%p rsp=%p\n"
+             "  regs2 r12=%p r13=%p r14=%p r15=%p rbp=%p\n",
              (void*)rip,(void*)uc->uc_mcontext.gregs[REG_RAX],(void*)uc->uc_mcontext.gregs[REG_RBX],
              (void*)uc->uc_mcontext.gregs[REG_RCX],(void*)uc->uc_mcontext.gregs[REG_RDX],
              (void*)uc->uc_mcontext.gregs[REG_RDI],(void*)uc->uc_mcontext.gregs[REG_RSI],
              (void*)uc->uc_mcontext.gregs[REG_R8],(void*)uc->uc_mcontext.gregs[REG_R9],
-             (void*)uc->uc_mcontext.gregs[REG_R10],(void*)uc->uc_mcontext.gregs[REG_RSP]);
+             (void*)uc->uc_mcontext.gregs[REG_R10],(void*)uc->uc_mcontext.gregs[REG_RSP],
+             (void*)uc->uc_mcontext.gregs[REG_R12],(void*)uc->uc_mcontext.gregs[REG_R13],
+             (void*)uc->uc_mcontext.gregs[REG_R14],(void*)uc->uc_mcontext.gregs[REG_R15],
+             (void*)uc->uc_mcontext.gregs[REG_RBP]);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
     if (gpu_enabled) spartanportgpu_dump_guest_writes(context);
     /* Host call chain (frames with unwind info; guest frames end it). */
@@ -322,6 +327,7 @@ static void fault(int sig, siginfo_t *info, void *context) {
         ssize_t written_=write(2, line, strlen(line)); (void)written_;
     }
     if (isa_table) { isa_rewrite_report(isa_table, stderr); fflush(stderr); }
+    dump_frames(context);
     _exit(128 + sig);
 }
 #endif
