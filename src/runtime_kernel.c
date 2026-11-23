@@ -173,13 +173,17 @@ static ABI int32_t load_start_module(const char *filename,uint64_t args,const vo
     printf("Runtime: sceKernelLoadStartModule(%s)\n",filename ? filename : "(null)");
     if (result) *result=0;
     if (filename && strstr(filename,"Engine.BuildInfo")) return 2;
-    if (filename && strstr(filename,"JavaScriptCore.prx")) {
+    if (filename && strstr(filename,"Twinkle.Codec")) {
         probe_start_deferred(3);
         return 3;
     }
-    if (filename && strstr(filename,"EAWebKit.prx")) {
+    if (filename && strstr(filename,"JavaScriptCore.prx")) {
         probe_start_deferred(4);
         return 4;
+    }
+    if (filename && strstr(filename,"EAWebKit.prx")) {
+        probe_start_deferred(5);
+        return 5;
     }
     return next_module_handle++;
 }

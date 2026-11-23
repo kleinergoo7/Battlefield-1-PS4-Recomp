@@ -1571,7 +1571,7 @@ int main(int argc, char **argv) {
         /* Dependencies start in link order (libc first), as the PS4 dynamic linker does. */
         for (uint64_t m=0;m<module_count;++m) {
             /* JSC/EAWebKit initialize only when the game asks for them, like shadPS4. */
-            if (getenv("SPARTAN_DEFER_MODULES") && (m==3 || m==4)) {
+            if (getenv("SPARTAN_DEFER_MODULES") && (m==3 || m==4 || m==5)) {
                 probe_set_deferred_init((int)m,modules[m].init);
                 printf("Deferred linked module %" PRIu64 " at image offset 0x%" PRIx64 "\n",m,modules[m].init);
                 continue;
