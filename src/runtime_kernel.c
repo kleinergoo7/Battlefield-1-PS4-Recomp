@@ -188,6 +188,9 @@ static ABI int32_t module_info_from_addr(uint64_t address,int32_t flags,void *in
 }
 static ABI int32_t neo_mode(void) { return 0; }
 static ABI int32_t cpu_mode(void) { return 0; }
+static ABI int32_t kernel_sleep(uint32_t seconds) {
+    return (int32_t)sleep_ns((uint64_t)seconds * 1000000000ULL);
+}
 static ABI int32_t get_module_list(int32_t *handles,uint64_t count,uint64_t *out_count) {
     if (!handles || !out_count) return ERR(14);
     uint64_t written=0;
@@ -358,12 +361,13 @@ static const RuntimeExport exports[]={
     {"sceKernelGetProcessTime",process_time}, {"sceKernelGetProcessTimeCounter",process_time_counter},
     {"sceKernelGetProcessTimeCounterFrequency",process_time_frequency},
     {"sceKernelReadTsc",read_tsc}, {"sceKernelGetTscFrequency",tsc_frequency},
+    {"sceKernelSleep",kernel_sleep},
     {"sceKernelUsleep",kernel_usleep}, {"usleep",posix_usleep}, {"sleep",posix_sleep},
     {"nanosleep",posix_nanosleep}, {"sceKernelNanosleep",kernel_nanosleep},
     {"sceKernelGettimezone",kernel_gettimezone}, {"gettimeofday",posix_gettimeofday},
     {"sceKernelGettimeofday",kernel_gettimeofday},
     {"time",posix_time},
-    {"getpagesize",get_pagesize}, {"getpid",get_pid}, {"sched_yield",yield},
+    {"getpagesize",get_pagesize}, {"getpid",get_pid}, {"sched_yield",yield}, {"pthread_yield",yield},
     {"_exit",hard_exit},
     {"sceKernelDebugRaiseException",raise_exception},
     {"sceKernelDebugRaiseExceptionOnReleaseMode",raise_exception},

@@ -97,14 +97,15 @@ static ABI int32_t set_event_flag(int32_t handle, uint64_t bits) {
 }
 
 static ABI int32_t wait_event_flag(int32_t handle, uint64_t bits, uint32_t mode,
-                                   uint64_t *result, const int64_t *timeout) {
+                                   uint64_t *result, uint32_t *timeout) {
     EventFlag *flag = resolve_handle(handle);
     if (!flag || !result) return 0x80020000;
     struct timespec deadline;
     if (timeout) {
+        uint64_t micros = *timeout;
         clock_gettime(CLOCK_REALTIME,&deadline);
-        deadline.tv_sec += timeout[0];
-        deadline.tv_nsec += timeout[1] * 1000;
+        deadline.tv_sec += micros / 1000000;
+        deadline.tv_nsec += (micros % 1000000) * 1000;
         while (deadline.tv_nsec >= 1000000000) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000; }
     }
     pthread_mutex_lock(&flag->mutex);
@@ -116,8 +117,10 @@ static ABI int32_t wait_event_flag(int32_t handle, uint64_t bits, uint32_t mode,
             ? pthread_cond_timedwait(&flag->condition,&flag->mutex,&deadline)
             : pthread_cond_wait(&flag->condition,&flag->mutex);
         if (wait_result == ETIMEDOUT) {
+            *result = flag->bits;
+            if (timeout) *timeout = 0;
             pthread_mutex_unlock(&flag->mutex);
-            return 0x80020060;
+            return 0x8002003C;
         }
     }
     if (flag->deleted) {
