@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <pthread.h>
+#include <unistd.h>
 #include <SDL3/SDL.h>
 #include "runtime.h"
 #include "cpu_check.h"
