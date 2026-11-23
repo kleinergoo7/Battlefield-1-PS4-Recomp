@@ -326,6 +326,10 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs.
      * Exception: shadPS4's eboot gets a zero stub for qiOZEn26Kds (EAWebKit) and
      * only ff_WebBrowser gets the real export — match that with the env gate. */
+    /* Tm9bXhmwlMA is forced through this resolver for handleCall tracing. When the
+     * tracer is off, return the real linked export so normal runs still work. */
+    if (getenv("SPARTAN_NO_JSC_STUBS") && name && !strcmp(name,"Tm9bXhmwlMA#libJavaScriptCore") &&
+        !getenv("SPARTAN_JSCB")) return probe_image_base()+0x52bced0;
     if (getenv("SPARTAN_NO_JSC_STUBS") && name &&
         (strstr(name,"libJavaScriptCore") || strstr(name,"Extension.Twinkle.Codec"))) return 0;
     if (getenv("SPARTAN_NO_JSC_STUBS") && name && strstr(name,"EAWebKit") &&
