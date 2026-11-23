@@ -48,7 +48,7 @@ typedef struct {
 _Static_assert(sizeof(GuestStat)==120,"FreeBSD stat layout");
 
 typedef struct { char *names; size_t count, *offsets; unsigned char *types; } Listing;
-typedef struct { int used, host; Listing *dir; size_t position; char path[512]; } File;
+typedef struct { int used, host, flags; Listing *dir; size_t position; char path[512]; } File;
 typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
@@ -229,7 +229,8 @@ static void fix_path_case(char *path,size_t capacity) {
     char work[1024];
     snprintf(work,sizeof(work),"%s",path+1);
     char current[1024]="";
-    char *component=strtok(work,"/");
+    char *saveptr=NULL;
+    char *component=strtok_r(work,"/",&saveptr);
     while (component) {
         size_t used=strlen(current);
         if (used+1+strlen(component)>=sizeof(current)) return;
@@ -254,9 +255,15 @@ static void fix_path_case(char *path,size_t capacity) {
                 *slash='/';
             }
         }
-        component=strtok(NULL,"/");
+        component=strtok_r(NULL,"/",&saveptr);
     }
     snprintf(path,capacity,"%s",current);
+}
+
+static int translate_case(const char *guest,char *path,size_t capacity) {
+    int e=translate(guest,path,capacity);
+    if (!e) fix_path_case(path,capacity);
+    return e;
 }
 
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
@@ -303,7 +310,7 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
     if (fd<0) { pthread_mutex_unlock(&lock); if (host>=0) close(host); free_listing(dir); return -EMFILE; }
-    files[fd]=(File){.used=1,.host=host,.dir=dir};
+    files[fd]=(File){.used=1,.host=host,.flags=flags,.dir=dir};
     snprintf(files[fd].path,sizeof(files[fd].path),"%s",guest);
     ++opens;
     pthread_mutex_unlock(&lock);
@@ -426,7 +433,7 @@ static int64_t do_fstat(int fd,GuestStat *out) {
 }
 static int64_t do_stat(const char *guest,GuestStat *out) {
     char path[1024]; HostStat s;
-    int e=translate(guest,path,sizeof(path));
+    int e=translate_case(guest,path,sizeof(path));
     if (e) return -e;
     if (!out) return -EFAULT;
     if (host_stat(path,&s)) return -errno;
@@ -472,7 +479,7 @@ static int64_t do_getdents(int fd,char *buffer,uint64_t size,int64_t *basep) {
 static int64_t path_op(const char *guest,int op,int mode) {
     if (game_path(guest)) return -EROFS;
     char path[1024];
-    int e=translate(guest,path,sizeof(path));
+    int e=translate_case(guest,path,sizeof(path));
     if (e) return -e;
     int r= op==0 ? mkdir(path,mode ? mode : 0755) : op==1 ? rmdir(path) : unlink(path);
     return r ? -errno : 0;
@@ -480,8 +487,8 @@ static int64_t path_op(const char *guest,int op,int mode) {
 static int64_t do_rename(const char *from,const char *to) {
     if (game_path(from) || game_path(to)) return -EROFS;
     char a[1024],b[1024];
-    int e=translate(from,a,sizeof(a));
-    if (!e) e=translate(to,b,sizeof(b));
+    int e=translate_case(from,a,sizeof(a));
+    if (!e) e=translate_case(to,b,sizeof(b));
     if (e) return -e;
 #ifdef _WIN32
     /* POSIX rename replaces an existing target; the CRT's fails. */
@@ -502,7 +509,7 @@ static int64_t do_ftruncate(int fd,int64_t length) {
 static int64_t do_truncate(const char *guest,int64_t length) {
     if (game_path(guest)) return -EROFS;
     char path[1024];
-    int e=translate(guest,path,sizeof(path));
+    int e=translate_case(guest,path,sizeof(path));
     if (e) return -e;
 #ifdef _WIN32
     int h=open(path,O_RDWR|O_BINARY);
@@ -517,7 +524,7 @@ static int64_t do_truncate(const char *guest,int64_t length) {
 static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; return fsync(h) ? -errno : 0; }
 static int64_t do_access(const char *guest,int mode) {
     char path[1024];
-    int e=translate(guest,path,sizeof(path));
+    int e=translate_case(guest,path,sizeof(path));
     if (e) return -e;
 #ifdef _WIN32
     return access(path,mode&6) ? -errno : 0; /* X_OK is invalid for the CRT */
@@ -532,6 +539,32 @@ static int64_t posix(int64_t r) { if (r<0) { *runtime_errno()=runtime_guest_errn
 #define PAIR(name,params,args) \
     static ABI int64_t sce_##name params { return sce(do_##name args); } \
     static ABI int64_t posix_##name params { return posix(do_##name args); }
+static int64_t do_fcntl(int fd,int cmd,int64_t arg) {
+    pthread_mutex_lock(&lock);
+    File *f=get(fd);
+    int64_t result=0;
+    if (!f) result=-EBADF;
+    else if (cmd==0 || cmd==1030) {
+        int nfd=-1;
+        for (int i=(int)arg;i<MAX_FILES;++i) if (!files[i].used) { nfd=i; break; }
+        if (nfd<0) result=-EMFILE;
+        else {
+            int host=dup(f->host);
+            if (host<0) result=-errno;
+            else {
+                files[nfd]=(File){.used=1,.host=host,.flags=f->flags};
+                memmove(files[nfd].path,f->path,sizeof(files[nfd].path));
+                result=nfd;
+            }
+        }
+    } else if (cmd==1 || cmd==2) result=0;
+    else if (cmd==3) result=f->flags;
+    else if (cmd==4) { f->flags=(int)arg; result=0; }
+    else result=-EINVAL;
+    pthread_mutex_unlock(&lock);
+    return result;
+}
+PAIR(fcntl,(int fd,int cmd,int64_t arg),(fd,cmd,arg))
 PAIR(open,(const char *p,int f,int m),(p,f,m))
 PAIR(close,(int fd),(fd))
 PAIR(read,(int fd,void *b,uint64_t n),(fd,b,n))
@@ -570,6 +603,7 @@ static const RuntimeExport exports[]={
     {"sceKernelLseek",sce_lseek}, {"lseek",posix_lseek},
     {"sceKernelFstat",sce_fstat}, {"fstat",posix_fstat},
     {"sceKernelStat",sce_stat}, {"stat",posix_stat},
+    {"sceKernelFcntl",sce_fcntl}, {"fcntl",posix_fcntl},
     {"sceKernelGetdirentries",sce_getdents},
     {"sceKernelGetdents",sce_getdents_3},
     {"getdirentries",posix_getdents},

@@ -77,6 +77,19 @@ static ABI int32_t addon_list(uint32_t service,void *list,uint32_t capacity,uint
     if (hits) *hits=0;
     ++lists; return 0;
 }
+static ABI int32_t temp_data_mount(uint32_t option,void *mount_point) {
+    (void)option;
+    if (!mount_point) return PARAMETER;
+    snprintf((char *)mount_point,16,"/temp0");
+    return 0;
+}
+static ABI int32_t addcont_mount(uint32_t service,const void *id,void *mount_point,uint32_t option) {
+    (void)service; (void)id; (void)option;
+    if (!mount_point) return PARAMETER;
+    snprintf((char *)mount_point,16,"/addcont0");
+    return 0;
+}
+static ABI int32_t addcont_unmount(void *mount_point) { (void)mount_point; return 0; }
 uintptr_t runtime_content_resolve(const char *name) {
     if (!strcmp(name,"g8cM39EUZ6o#libSceSysmodule")) return (uintptr_t)module_load;
     if (!strcmp(name,"fMP5NHUOaMk#libSceSysmodule")) return (uintptr_t)module_loaded;
@@ -84,6 +97,9 @@ uintptr_t runtime_content_resolve(const char *name) {
     if (!strcmp(name,"R9lA82OraNs#libSceAppContent")) return (uintptr_t)content_init;
     if (!strcmp(name,"99b82IKXpH4#libSceAppContent")) return (uintptr_t)param_int;
     if (!strcmp(name,"xnd8BJzAxmk#libSceAppContent")) return (uintptr_t)addon_list;
+    if (!strcmp(name,"buYbeLOGWmA#libSceAppContent")) return (uintptr_t)temp_data_mount;
+    if (!strcmp(name,"VANhIWcqYak#libSceAppContent")) return (uintptr_t)addcont_mount;
+    if (!strcmp(name,"3rHWaV-1KC4#libSceAppContent")) return (uintptr_t)addcont_unmount;
     return 0;
 }
 void runtime_content_report(void) {
