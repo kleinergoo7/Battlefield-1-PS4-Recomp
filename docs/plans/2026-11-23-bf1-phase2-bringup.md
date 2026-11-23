@@ -85,3 +85,20 @@ Disassembly of the lazy init (`boot.bin` file offset `0xb9e710`) confirms:
 3. Fully link/initialize `EAWebKit.prx` and related PRXs with real module registration.
 
 Option 1 is the correct long-term fix; option 2 is the fastest path to a first frame.
+
+## ABI fixes and stable loading (2026-11-23, later)
+
+- `sceKernelAvailableDirectMemorySize` was exported with the wrong signature
+  (no args, returns size). Corrected to the real 5-argument form:
+  `searchStart, searchEnd, alignment, u64* physOut, u64* sizeOut`, scanning the
+  allocated direct-memory blocks for the largest aligned free run. BF1 now prints
+  correct values (`Mem free: 3909.78 MB`, `Largest address: 47aa0000`).
+- `sceLibcHeapGetTraceInfo` now fills the correct 32-byte struct with non-null
+  mspace/mstate tables.
+- Added patch `Skip offline assertion` (ret at guest 0x470473) and
+  `Skip diagnostic heap dump` (ret at function entry 0x46f180). The second patch
+  removed the remaining null-call crash.
+- NP handle-creation stubs now return positive ids instead of 0.
+- Result: the native RECOMP no longer crashes; it opens a 1920x1016 window and
+  renders BF1's loading spinner. It remains stuck on a spinner with worker
+  threads in futex waits (possibly an unsignaled semaphore or asset-load wait).

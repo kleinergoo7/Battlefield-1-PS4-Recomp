@@ -32,8 +32,16 @@ static ABI void guest_set_heap_api(void **api) {
     application_heap_api=api;
     puts("Runtime: application heap API registered");
 }
+static uint64_t bf1_mspace_atomic_id_mask[64];
+static uint64_t bf1_mstate[64];
+static uint64_t *bf1_mstate_table[64];
 static ABI void libc_heap_trace_info(void *info) {
-    if (info) memset(info, 0, 24);
+    if (!info) return;
+    for (int i = 0; i < 64; ++i) bf1_mstate_table[i] = &bf1_mstate[i];
+    memset(info, 0, 32);
+    *(uint64_t *)info = 32;
+    ((uint64_t **)info)[2] = bf1_mspace_atomic_id_mask;
+    ((uint64_t **)info)[3] = (uint64_t *)(uintptr_t)bf1_mstate_table;
 }
 static ABI int32_t random_bytes(unsigned char *buffer, uint64_t size) {
     if (!buffer || size > 1024) return 0x80020000;

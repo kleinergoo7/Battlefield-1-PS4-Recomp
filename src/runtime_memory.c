@@ -628,11 +628,31 @@ static int direct_range_allocated(uint64_t phys, uint64_t size) {
 /* The pool is created first so that the size reported is the one the host granted. Once it
  * exists the size is fixed, so later calls skip the exclusive lock: taking it advances
  * table_generation, which drops every thread's region cache. */
-static ABI uint64_t available_direct_size(void) {
+static ABI int32_t available_direct_size(uint64_t start,uint64_t end,uint64_t alignment,
+                                         uint64_t *phys_out,uint64_t *size_out) {
+    if (!phys_out || !size_out || !alignment) return INVALID;
+    if (end > POOL_SIZE) end = POOL_SIZE;
+    if (start >= end) { *phys_out=0; *size_out=0; return NO_MEMORY; }
     write_lock();
-    uint64_t available = POOL_SIZE > live_bytes ? POOL_SIZE - live_bytes : 0;
+    uint64_t cursor=align_up(start,alignment), best_addr=0, best_size=0;
+    while (cursor < end) {
+        int nearest=-1;
+        for (int i=0;i<LIMIT;++i) {
+            Block b=blocks[i];
+            if (!b.used || b.start>=end || b.start+b.size<=cursor) continue;
+            if (nearest<0 || b.start<blocks[nearest].start) nearest=i;
+        }
+        uint64_t gap_end = nearest<0 ? end : blocks[nearest].start;
+        if (gap_end > cursor && gap_end-cursor > best_size) {
+            best_addr=cursor; best_size=gap_end-cursor;
+        }
+        if (nearest<0) break;
+        cursor=align_up(blocks[nearest].start+blocks[nearest].size,alignment);
+    }
     write_unlock();
-    return available;
+    *phys_out=best_addr;
+    *size_out=best_size;
+    return best_size ? 0 : NO_MEMORY;
 }
 static ABI uint64_t direct_size(void) {
     static int pool_known;
