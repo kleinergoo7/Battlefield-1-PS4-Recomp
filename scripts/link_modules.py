@@ -19,7 +19,13 @@ from prepare import parse_self, read_self, span, unpack
 from link_libc import encode_id
 
 DEFAULT_MODULES = ('libc.prx', 'libSceFios2.prx')
-HOST_OVERRIDES = {'LwG8g3niqwA'}
+HOST_OVERRIDES = {
+    'LwG8g3niqwA',  # sceKernelDlsym
+    'BpFoboUJoZU',  # sceKernelCreateEventFlag
+    '8mql9OcQnd4',  # sceKernelDeleteEventFlag
+    'IOnSvHzqu6A',  # sceKernelSetEventFlag
+    'JTvBflhYazQ',  # sceKernelWaitEventFlag
+}
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]
 
 

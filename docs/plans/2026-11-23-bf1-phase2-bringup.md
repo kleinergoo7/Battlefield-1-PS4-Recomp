@@ -41,6 +41,21 @@ copy-like function, with `rsp == rbp` at the thread stack top. Likely a blanket
 stub returned 0 where a pointer/size was expected, feeding a bad value into the
 copy routine.
 
+## Later diagnosis (logging stubs)
+
+Making every fallback stub log its name showed the last calls before the fault:
+`sceKernelAvailableDirectMemorySize` (now implemented from `POOL_SIZE - live_bytes`),
+then NP-party/webapi stubs, then a deliberate game assertion
+`movl $0xbeef, 0x0` at guest offset `0x70473`, immediately after a call whose PLT
+index 8 resolves to `sceKernelDeleteEventFlag`. Event-flag create logs show handles
+1..7 are created by our host implementation, but no delete log appears — the delete
+call is still bound to libc.prx's native implementation, which does not know our
+handles, so it fails and the game asserts.
+
+`HOST_OVERRIDES` in `scripts/link_modules.py` was extended to cover event-flag NIDs,
+but the delete call still does not reach the host resolver. Next step: inspect how
+that specific call site is bound (link.json/GOT) rather than guessing.
+
 ## Original blocker (resolved)
 
 After game entry, BF1's lazy singleton initializer:

@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define MAX_EVENT_FLAGS 256
@@ -59,6 +60,7 @@ static ABI int32_t create_event_flag(int32_t *handle, const char *name, uint32_t
         return 0x80020000;
     }
     *handle = allocated;
+    printf("EVF create -> handle=%d\n",allocated);
     return 0;
 }
 
@@ -69,6 +71,7 @@ static ABI int32_t delete_event_flag(int32_t handle) {
     flag->deleted = 1;
     pthread_cond_broadcast(&flag->condition);
     pthread_mutex_unlock(&flag->mutex);
+    printf("EVF delete handle=%d\n",handle);
     return 0;
 }
 

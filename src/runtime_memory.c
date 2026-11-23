@@ -628,6 +628,12 @@ static int direct_range_allocated(uint64_t phys, uint64_t size) {
 /* The pool is created first so that the size reported is the one the host granted. Once it
  * exists the size is fixed, so later calls skip the exclusive lock: taking it advances
  * table_generation, which drops every thread's region cache. */
+static ABI uint64_t available_direct_size(void) {
+    write_lock();
+    uint64_t available = POOL_SIZE > live_bytes ? POOL_SIZE - live_bytes : 0;
+    write_unlock();
+    return available;
+}
 static ABI uint64_t direct_size(void) {
     static int pool_known;
     if (__atomic_load_n(&pool_known,__ATOMIC_ACQUIRE)) return POOL_SIZE;
@@ -963,7 +969,9 @@ static ABI int32_t batch_map(BatchEntry *entries, int count, int *processed) {
 }
 static const RuntimeExport exports[]={
     {"mmap",posix_mmap}, {"msync",posix_msync},
-    {"sceKernelGetDirectMemorySize",direct_size}, {"sceKernelAllocateDirectMemory",direct_allocate},
+    {"sceKernelGetDirectMemorySize",direct_size},
+    {"sceKernelAvailableDirectMemorySize",available_direct_size},
+    {"sceKernelAllocateDirectMemory",direct_allocate},
     {"sceKernelMapDirectMemory",direct_map}, {"sceKernelMapNamedDirectMemory",direct_map_named},
     {"sceKernelReleaseDirectMemory",direct_release}, {"sceKernelMunmap",direct_unmap}, {"munmap",direct_unmap},
     {"sceKernelMapFlexibleMemory",map_flexible}, {"sceKernelMapNamedFlexibleMemory",map_flexible_named},
