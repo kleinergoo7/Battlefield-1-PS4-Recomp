@@ -70,36 +70,9 @@ static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q#
 
 static ABI int64_t bf1_jsc_noop(void) { return 0; } /* NULL-safe JSStringRelease */
 
-/* Diagnostic: wrap the Twinkle handleCall JS callback (6-arg JSObjectCallAsFunctionCallback)
- * to log each message and the returned JSValue. JSC base is 0x52b0000 in the 6-module image. */
+/* Diagnostic: log JS callback registration names (SPARTAN_JSCB). */
 typedef void *(ABI *JsMakeFuncCb)(void *,void *,void *);
-typedef void *(ABI *JsCallAsFunc)(void *,void *,void *,size_t,void **,void **);
-typedef void *(ABI *JsToString)(void *,void *,void **);
 typedef size_t (ABI *JsGetUtf8)(void *,char *,size_t);
-typedef int (ABI *JsGetType)(void *);
-static void *(ABI jsc_callback_trampoline)(void *ctx,void *fn_obj,void *self,size_t argc,void **argv,void **exc) {
-    static JsCallAsFunc real_cb;
-    static JsToString tostring;
-    static JsGetUtf8 utf8;
-    static JsGetType gettype;
-    if (!real_cb) {
-        /* the real callback is captured in a small table by the registration wrapper */
-        extern void *jsc_real_callback;
-        real_cb=(JsCallAsFunc)jsc_real_callback;
-    }
-    if (!tostring) tostring=(JsToString)(probe_image_base()+0x52b4c50);
-    if (!utf8) utf8=(JsGetUtf8)(probe_image_base()+0x52b3180);
-    if (!gettype) gettype=(JsGetType)(probe_image_base()+0x52b3380);
-    char buf[128]={0};
-    if (argc>=1 && argv && argv[0]) {
-        void *s=tostring(ctx,argv[0],NULL);
-        if (s) utf8(s,buf,sizeof(buf)-1);
-    }
-    void *r=real_cb(ctx,fn_obj,self,argc,argv,exc);
-    fprintf(stderr,"[JSCALL] '%s' argc=%zu -> %p type=%d exc=%p\n",buf,argc,r,r?gettype(r):-1,exc?*exc:NULL);
-    return r;
-}
-void *jsc_real_callback;
 static void *(ABI jsc_makefunccb)(void *ctx,void *name,void *fn) {
     static JsMakeFuncCb real;
     static JsGetUtf8 utf8;
@@ -108,8 +81,7 @@ static void *(ABI jsc_makefunccb)(void *ctx,void *name,void *fn) {
     char buf[128]={0};
     if (name) utf8(name,buf,sizeof(buf)-1);
     fprintf(stderr,"[JSCB] %s -> %p\n",buf,fn);
-    jsc_real_callback=fn;
-    return real(ctx,name,(void *)jsc_callback_trampoline);
+    return real(ctx,name,fn);
 }
 static void bf1_dummy_virtual(void) {}
 static void *bf1_dummy_vtable[] = {
