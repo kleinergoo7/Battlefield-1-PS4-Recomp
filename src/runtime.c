@@ -63,7 +63,17 @@ static ABI int64_t bf1_unknown_8(void) { printf("BF1 private stub: O8DunroJtKc# 
 static ABI int64_t bf1_unknown_9(void) { printf("BF1 private stub: Soq7bosBHpo# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
 static ABI int64_t bf1_unknown_10(void) { printf("BF1 private stub: UCIrgrj61F0# Engine.BuildInfo_gen4b_retail\n"); return 0; }
 static ABI int64_t bf1_unknown_11(void) { printf("BF1 private stub: Zd-z5tJxpJw# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
-static ABI int64_t bf1_unknown_12(void) { printf("BF1 private stub: fJgP+wqifno# libSceDiscMap\n"); return 0; }
+/* shadPS4 disc_map.cpp Func_7C980FFB0AA27E7A: zero the three out-params and
+ * return OK. Fios2 branches on the flags out-param, so a no-arg stub that
+ * leaves stack garbage can send the level loader down a wrong path. */
+static ABI int32_t discmap_func(const char *path,int64_t off,int64_t nbytes,
+                                int32_t *flags,int32_t *ret1,int32_t *ret2) {
+    (void)path; (void)off; (void)nbytes;
+    if (flags) *flags=0;
+    if (ret1) *ret1=0;
+    if (ret2) *ret2=0;
+    return 0;
+}
 static ABI int64_t bf1_unknown_13(void) { printf("BF1 private stub: mgjWUOKHkJg# libJavaScriptCore\n"); return 0; }
 static ABI int64_t bf1_unknown_14(void) { printf("BF1 private stub: qiOZEn26Kds# EAWebKit\n"); return 0; }
 static ABI int64_t bf1_unknown_15(void) { printf("BF1 private stub: uaS4VsGOM7Q# Extension.Twinkle.Codec_gen4b_retail\n"); return 0; }
@@ -390,7 +400,7 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (getenv("SPARTAN_BUILDINFO_DUMMY") &&
         !strcmp(name, "UCIrgrj61F0#Engine.BuildInfo_gen4b_retail")) return (uintptr_t)bf1_unknown_10;
     if (!strcmp(name, "Zd-z5tJxpJw#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_11;
-    if (!strcmp(name, "fJgP+wqifno#libSceDiscMap")) return (uintptr_t)bf1_unknown_12;
+    if (!strcmp(name, "fJgP+wqifno#libSceDiscMap")) return (uintptr_t)discmap_func;
     if (!strcmp(name, "mgjWUOKHkJg#libJavaScriptCore")) return (uintptr_t)bf1_unknown_13;
     if (!strcmp(name, "qiOZEn26Kds#EAWebKit")) return (uintptr_t)bf1_unknown_14;
     if (!strcmp(name, "uaS4VsGOM7Q#Extension.Twinkle.Codec_gen4b_retail")) return (uintptr_t)bf1_unknown_15;

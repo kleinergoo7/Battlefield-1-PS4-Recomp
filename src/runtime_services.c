@@ -978,6 +978,61 @@ static ABI int32_t np_user_by_online_id(const void *online_id,int32_t *user_id) 
 }
 static ABI int32_t np_webapi_not_signed_in(void) { return 0x80552907; }
 
+/* Minimal event queues (equeue). shadPS4 implements these fully; the bf1
+ * fallback stubs returned 0 without writing *out, so a waiter could spin
+ * forever. We only need create/delete/wait with a condvar-backed queue. */
+#define EQ_MAX 64
+typedef struct {
+    int used;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    unsigned count;      /* number of events posted */
+    unsigned waiters;
+} Equ;
+static Equ equeues[EQ_MAX];
+static pthread_mutex_t equeues_lock=PTHREAD_MUTEX_INITIALIZER;
+static ABI int32_t eq_create(const char *name,int attr) {
+    (void)name; (void)attr;
+    pthread_mutex_lock(&equeues_lock);
+    int id=-1;
+    for (int i=0;i<EQ_MAX;++i) if (!equeues[i].used) { id=i; break; }
+    if (id<0) { pthread_mutex_unlock(&equeues_lock); return 0x8002000C; }
+    Equ *q=&equeues[id]; q->used=1; q->count=0;
+    pthread_mutex_init(&q->lock,NULL); pthread_cond_init(&q->cond,NULL);
+    pthread_mutex_unlock(&equeues_lock);
+    return id+1;
+}
+static ABI int32_t eq_delete(int32_t eq) {
+    if (eq<=0 || eq>EQ_MAX) return 0x80020006;
+    Equ *q=&equeues[eq-1];
+    if (!q->used) return 0x80020006;
+    pthread_mutex_lock(&q->lock);
+    pthread_cond_broadcast(&q->cond);
+    q->used=0;
+    pthread_mutex_unlock(&q->lock);
+    return 0;
+}
+static ABI int32_t eq_wait(int32_t eq,void *events,int num,int *out,uint64_t *timo) {
+    (void)events; (void)num;
+    if (eq<=0 || eq>EQ_MAX) return 0x80020006;
+    Equ *q=&equeues[eq-1];
+    if (!q->used) return 0x80020006;
+    if (out) *out=0;
+    pthread_mutex_lock(&q->lock);
+    /* No event producers are wired up in this offline runtime, so a wait with
+     * a timeout returns ETIMEDOUT; an infinite wait would block forever. Treat
+     * it as ETIMEDOUT so callers do not stall. */
+    if (timo && *timo) {
+        struct timespec end; clock_gettime(CLOCK_REALTIME,&end);
+        uint64_t us=*timo;
+        end.tv_sec+=us/1000000; end.tv_nsec+=(us%1000000)*1000;
+        while (end.tv_nsec>=1000000000) { end.tv_sec++; end.tv_nsec-=1000000000; }
+        pthread_cond_timedwait(&q->cond,&q->lock,&end);
+    }
+    pthread_mutex_unlock(&q->lock);
+    return 0x8002003C; /* ETIMEDOUT */
+}
+
 
 static const RuntimeExport exports[]={
     {"sceNpPartyGetMembers",np_party_not_in_party},
@@ -1130,6 +1185,7 @@ static const RuntimeExport exports[]={
     {"sceMouseInit",ok_void}, {"sceMouseOpen",mouse_open}, {"sceMouseRead",mouse_read}, {"sceMouseClose",mouse_close},
     {"sceAudioInOpen",audio_in_open},
     {"sceDiscMapIsRequestOnHDD",discmap_on_hdd}, {"sceDiscMap_8A828CAEE7EDD5E9",discmap_8a82},
+    {"sceKernelCreateEqueue",eq_create}, {"sceKernelDeleteEqueue",eq_delete}, {"sceKernelWaitEqueue",eq_wait},
     {"sceVoiceInit",ok_void}, {"sceVoiceEnd",ok_void},
 };
 uintptr_t runtime_services_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }

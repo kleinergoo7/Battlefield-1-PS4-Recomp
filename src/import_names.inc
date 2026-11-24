@@ -533,6 +533,7 @@
 {"RU74kek-N0c#libSceGnmDriver","sceGnmLogicalCuMaskToPhysicalCuMask"},
 {"zwY0YV91TTI#libSceGnmDriver","sceGnmSubmitCommandBuffers"},
 {"xbxNatawohc#libSceGnmDriver","sceGnmSubmitAndFlipCommandBuffers"},
+{"fJgP+wqifno#libSceDiscMap","sceDiscMapFunc_7C980FFB0AA27E7A"},
 {"iCO804ZgzdA#libSceGnmDriver","sceGnmValidateCommandBuffers"},
 {"b0xyllnVY-I#libSceGnmDriver","sceGnmAddEqEvent"},
 {"PVT+fuoS9gU#libSceGnmDriver","sceGnmDeleteEqEvent"},

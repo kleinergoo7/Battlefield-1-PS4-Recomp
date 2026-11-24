@@ -16,7 +16,20 @@ typedef struct {
     uint32_t libc_flags;
     pthread_mutex_t native;
     unsigned users; /* holders and waiters: destroy returns EBUSY while any remain */
+    /* Per-thread recursion depth for the cond-wait fix below. Only the owner
+     * touches its own slot, and cond_wait is called by the owner, so this is
+     * race-free. Sized for typical guest thread counts. */
+    int depth[64];
+    int type;
 } GuestMutex;
+static int mutex_slot(void) {
+    static _Thread_local int slot=-1;
+    if (slot<0) {
+        uint64_t tid=(uint64_t)(uintptr_t)pthread_self();
+        slot=(int)(tid % 64);
+    }
+    return slot;
+}
 _Static_assert(offsetof(GuestMutex,libc_flags)==0x20,"Guest libc mutex flags offset");
 static size_t created, locks, unlocks;
 static int32_t orbis_error(int e) {
@@ -67,6 +80,7 @@ static ABI int32_t mutex_init(GuestMutex **out, GuestAttr **attr, const char *na
     if (!e) e = pthread_mutex_init(&mutex->native, &native_attr);
     pthread_mutexattr_destroy(&native_attr);
     if (e) { runtime_low_free(mutex); return orbis_error(e); }
+    mutex->type=type;
     *out = mutex; ++created; return 0;
 }
 static pthread_mutex_t static_init = PTHREAD_MUTEX_INITIALIZER;
@@ -95,7 +109,7 @@ static ABI int32_t mutex_lock(GuestMutex **mutex) {
     e = orbis_error(pthread_mutex_lock(&value->native));
     runtime_wait_end("mutex lock", wait_start, "mutex", (long long)(uintptr_t)value);
     if (e) __atomic_sub_fetch(&value->users,1,__ATOMIC_RELEASE);
-    if (!e) ++locks;
+    if (!e) { ++locks; value->depth[mutex_slot()]++; }
     return e;
 }
 static ABI int32_t mutex_trylock(GuestMutex **mutex) {
@@ -105,7 +119,7 @@ static ABI int32_t mutex_trylock(GuestMutex **mutex) {
     __atomic_add_fetch(&value->users,1,__ATOMIC_ACQ_REL);
     e = orbis_error(pthread_mutex_trylock(&value->native));
     if (e) __atomic_sub_fetch(&value->users,1,__ATOMIC_RELEASE);
-    if (!e) ++locks;
+    if (!e) { ++locks; value->depth[mutex_slot()]++; }
     return e;
 }
 static ABI int32_t mutex_unlock(GuestMutex **mutex) {
@@ -115,6 +129,8 @@ static ABI int32_t mutex_unlock(GuestMutex **mutex) {
     if (!__atomic_load_n(&value->users,__ATOMIC_ACQUIRE)) return orbis_error(EPERM);
     int32_t e = orbis_error(pthread_mutex_unlock(&value->native));
     if (!e) {
+        int *d=&value->depth[mutex_slot()];
+        if (*d>0) (*d)--;
         __atomic_sub_fetch(&value->users,1,__ATOMIC_RELEASE);
         ++unlocks;
     }
@@ -182,14 +198,32 @@ static ABI int32_t cond_destroy(GuestCond **cond) {
     if (!e) { runtime_low_free(*cond); *cond = NULL; }
     return orbis_error(e);
 }
+/* shadPS4 PthreadMutex::CvUnlock/CvLock (pthread.h:115): a cond wait must fully
+ * release a recursively-held mutex, otherwise glibc's pthread_cond_wait only
+ * decrements the recursion count without unlocking, so the signaler cannot lock
+ * the mutex to change the predicate -> lost wakeup (39895 waits / 55 wakeups). */
+static int cv_release(GuestMutex *m) {
+    int *d=&m->depth[mutex_slot()];
+    int recurse=*d;
+    *d=0;
+    for (int i=0;i<recurse;++i) pthread_mutex_unlock(&m->native);
+    return recurse;
+}
+static void cv_restore(GuestMutex *m,int recurse) {
+    for (int i=0;i<recurse;++i) pthread_mutex_lock(&m->native);
+    m->depth[mutex_slot()]=recurse;
+}
 static ABI int32_t cond_wait(GuestCond **cond, GuestMutex **mutex) {
     int32_t e = ensure_cond(cond);
     if (e) return e;
     if (!mutex || (uintptr_t)*mutex < 3) return orbis_error(EINVAL);
     ++waits;
+    GuestMutex *m=*mutex;
+    int recurse=cv_release(m);
     const uint64_t wait_start = runtime_wait_begin();
-    const int r = pthread_cond_wait(&(*cond)->native, &(*mutex)->native);
+    const int r = pthread_cond_wait(&(*cond)->native, &m->native);
     runtime_wait_end("cond wait", wait_start, "cond", (long long)(uintptr_t)*cond);
+    cv_restore(m,recurse);
     return orbis_error(r);
 }
 static int32_t cond_wait_until(GuestCond **cond, GuestMutex **mutex, const struct timespec *end) {
@@ -197,7 +231,11 @@ static int32_t cond_wait_until(GuestCond **cond, GuestMutex **mutex, const struc
     if (e) return e;
     if (!mutex || (uintptr_t)*mutex < 3 || !end) return orbis_error(EINVAL);
     ++waits;
-    return timed_error(pthread_cond_timedwait(&(*cond)->native, &(*mutex)->native, end));
+    GuestMutex *m=*mutex;
+    int recurse=cv_release(m);
+    int r=pthread_cond_timedwait(&(*cond)->native, &m->native, end);
+    cv_restore(m,recurse);
+    return timed_error(r);
 }
 static ABI int32_t cond_timedwait(GuestCond **cond, GuestMutex **mutex, uint32_t usec) {
     struct timespec end;
