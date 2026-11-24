@@ -81,7 +81,10 @@ static ABI int32_t clear_event_flag(int32_t handle, uint64_t bits) {
     EventFlag *flag=resolve_handle(handle);
     if (!flag) return 0x80020000;
     pthread_mutex_lock(&flag->mutex);
-    flag->bits &= ~bits;
+    /* PS4 semantics (shadPS4 event_flag.cpp:207): Clear(bits) keeps ONLY the
+     * listed bits and clears the rest. The previous &= ~bits removed the listed
+     * bits (exact inverse), which can lose level-loader completion flags. */
+    flag->bits &= bits;
     pthread_mutex_unlock(&flag->mutex);
     return 0;
 }
@@ -127,7 +130,8 @@ static ABI int32_t wait_event_flag(int32_t handle, uint64_t bits, uint32_t mode,
         pthread_mutex_unlock(&flag->mutex);
         return 0x80020000;
     }
-    *result = flag->bits & bits;
+    /* PS4 returns the full current bit pattern, not the masked subset. */
+    *result = flag->bits;
     if (mode & EVF_CLEAR_ALL) flag->bits = 0;
     else if (mode & EVF_CLEAR_PAT) flag->bits &= ~bits;
     pthread_mutex_unlock(&flag->mutex);
