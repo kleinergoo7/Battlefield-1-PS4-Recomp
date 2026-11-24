@@ -383,6 +383,20 @@ static void dump_poll_target(void) {
     uint32_t ctr=*(uint32_t *)(image+0x3eb8ac8);
     snprintf(line,sizeof(line),"  UI global 0x3eb8af0=%p 0x3eb8af8=%p counter=%u\n",(void*)g0,(void*)g1,ctr);
     w_=write(2,line,strlen(line)); (void)w_;
+    /* Twinkle UI gate (guest 0x2077320): singleton at 0x4a83330, byte +0xa0 must
+     * be nonzero for message handlers + navigationState transitions to run. */
+    uint64_t tw=*(uint64_t *)(image+0x4a83330);
+    unsigned char twbyte=tw ? *(unsigned char *)(uintptr_t)(tw+0xa0) : 0;
+    snprintf(line,sizeof(line),"  TWINKLE gate 0x4a83330=%p byte+0xa0=%u\n",(void*)tw,twbyte);
+    w_=write(2,line,strlen(line)); (void)w_;
+    /* Objective-provider globals gating the CurrentObjectiveResponse handler. */
+    uint64_t s1=*(uint64_t *)(image+0x4abfaf0);
+    uint64_t o1=s1 ? *(uint64_t *)(uintptr_t)(s1+0x68) : 0;
+    uint64_t s2=*(uint64_t *)(image+0x4ab4f40);
+    uint64_t o2=s2 ? *(uint64_t *)(uintptr_t)(s2+0x78) : 0;
+    snprintf(line,sizeof(line),"  OBJ providers 0x4abfaf0=%p +0x68=%p 0x4ab4f40=%p ->+0x78=%p\n",
+             (void*)s1,(void*)o1,(void*)s2,(void*)o2);
+    w_=write(2,line,strlen(line)); (void)w_;
 }
 static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); runtime_sema_dump_blocked(); }
 static void watchdog(int sig, siginfo_t *info, void *context) {
