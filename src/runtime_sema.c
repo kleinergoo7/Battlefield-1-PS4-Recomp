@@ -14,7 +14,36 @@ typedef struct Waiter {
     int done;
     pthread_cond_t event;
     struct Waiter *next;
+    /* Diagnostics: thread + guest call site captured at block time. */
+    char thread[32];
+    uintptr_t guest_ret;
+    uint64_t entered_ns;
 } Waiter;
+/* Snapshot passed from the ABI export into wait_count. */
+typedef struct {
+    char thread[32];
+    uintptr_t guest_ret;
+    uint64_t entered_ns;
+} WaitInfo;
+/* Guest-offset formatter (POSIX describe_address equivalent). */
+static void sema_guest_site(char *out,size_t size,uintptr_t ret) {
+    uintptr_t base=probe_image_base();
+    if (base && ret>=base && ret-base<0x10000000u)
+        snprintf(out,size,"guest+0x%lx",(unsigned long)(ret-base));
+    else snprintf(out,size,"host %p",(void*)ret);
+}
+/* One-shot first-block logger: the guest caller of sem_wait is the direct host
+ * address (probe.c writes the runtime function address into the GOT), so
+ * __builtin_return_address(0) taken in sem_wait is the real guest call site. */
+static void first_block_log(uint32_t id,const WaitInfo *info) {
+    static uint64_t seen; static int enabled=-1;
+    if (enabled<0) { const char *e=getenv("SPARTAN_SEMA_FIRST_BLOCK"); enabled=e && *e && *e!='0'; }
+    if (!enabled || id>=64) return;
+    if (__atomic_fetch_or(&seen,1ull<<id,__ATOMIC_ACQ_REL)&(1ull<<id)) return;
+    char site[64]; sema_guest_site(site,sizeof(site),info->guest_ret);
+    fprintf(stderr,"[SEMAFIRST] id=%u thread='%s' caller=%s\n",id,info->thread,site);
+    fflush(stderr);
+}
 typedef struct Sema {
     uint32_t id, attr;
     int32_t count, initial, maximum;
@@ -72,7 +101,7 @@ static ABI int32_t sem_create(uint32_t *out,const char *name,uint32_t attr,
     pthread_mutex_unlock(&lock);
     return 0;
 }
-static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) {
+static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block,const WaitInfo *info) {
     pthread_mutex_lock(&lock);
     Sema *s=find(id);
     int32_t result=0;
@@ -86,6 +115,10 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
            PS4 priority scheduler, host threads run at equal priority. */
         if (getenv("SPARTAN_TRACE_SEMA")) fprintf(stderr,"Runtime: blocking wait on semaphore %u (need %d, count %d)\n",id,need,s->count); /* deadlock diagnosis */
         Waiter w={.need=need};
+        if (info) {
+            snprintf(w.thread,sizeof(w.thread),"%s",info->thread);
+            w.guest_ret=info->guest_ret; w.entered_ns=info->entered_ns;
+        }
         pthread_condattr_t attr;
         host_check(pthread_condattr_init(&attr));
         host_check(pthread_condattr_setclock(&attr,WAIT_CLOCK));
@@ -94,6 +127,7 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
         Waiter **tail=&s->first;
         while (*tail) tail=&(*tail)->next;
         *tail=&w; ++s->active;
+        if (info) first_block_log(id,info);
         uint64_t deadline=timeout ? now_ns()+(uint64_t)*timeout*1000 : 0;
         struct timespec end={.tv_sec=(time_t)(deadline/1000000000),.tv_nsec=(long)(deadline%1000000000)};
         while (!w.done) {
@@ -116,13 +150,18 @@ static int32_t wait_count(uint32_t id,int32_t need,uint32_t *timeout,int block) 
     pthread_mutex_unlock(&lock);
     return result;
 }
-static ABI int32_t sem_wait(uint32_t id,int32_t need,uint32_t *timeout) {
+static ABI __attribute__((noinline)) int32_t sem_wait(uint32_t id,int32_t need,uint32_t *timeout) {
     const uint64_t wait_start=runtime_wait_begin();
-    const int32_t r=wait_count(id,need,timeout,1);
+    WaitInfo info;
+    const char *tn=runtime_thread_name();
+    snprintf(info.thread,sizeof(info.thread),"%s",tn?tn:"host");
+    info.guest_ret=(uintptr_t)__builtin_return_address(0);
+    info.entered_ns=now_ns();
+    const int32_t r=wait_count(id,need,timeout,1,&info);
     runtime_wait_end("semaphore wait",wait_start,"id",id);
     return r;
 }
-static ABI int32_t sem_poll(uint32_t id,int32_t need) { return wait_count(id,need,NULL,0); }
+static ABI int32_t sem_poll(uint32_t id,int32_t need) { return wait_count(id,need,NULL,0,NULL); }
 static ABI int32_t sem_signal(uint32_t id,int32_t count) {
     pthread_mutex_lock(&lock);
     Sema *s=find(id);
@@ -202,12 +241,20 @@ void runtime_sema_report(void) {
 /* Diagnostic snapshot for a stalled level load: dump every live semaphore with
  * blocked waiters. Called from the SIGUSR2 thread dump in probe.c. */
 void runtime_sema_dump_blocked(void) {
-    pthread_mutex_lock(&lock);
+    if (pthread_mutex_trylock(&lock)) { fputs("[SEMADUMP] registry lock held, skipped\n",stderr); return; }
     unsigned n=0;
     for (Sema *s=registry; s; s=s->next) {
-        if (!s->deleted && s->active)
+        if (!s->deleted && s->active) {
             fprintf(stderr,"[SEMADUMP] id=%u attr=%u count=%d initial=%d max=%d waiters=%u\n",
                     s->id,s->attr,s->count,s->initial,s->maximum,s->active), ++n;
+            unsigned k=0;
+            for (Waiter *w=s->first; w; w=w->next,++k) {
+                char site[64]; sema_guest_site(site,sizeof(site),w->guest_ret);
+                double age=w->entered_ns ? (now_ns()-w->entered_ns)/1e9 : 0.0;
+                fprintf(stderr,"[SEMADUMP]   waiter %u: thread='%s' age=%.1fs need=%d caller=%s\n",
+                        k,w->thread,age,w->need,site);
+            }
+        }
     }
     fprintf(stderr,"[SEMADUMP] %u semaphores with blocked waiters\n",n);
     pthread_mutex_unlock(&lock);

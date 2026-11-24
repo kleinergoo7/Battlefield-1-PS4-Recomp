@@ -154,6 +154,7 @@ static void publish(GuestThread *t) {
 }
 /* Host threads that call into guest code without being created by the guest
  * (the main thread, test threads) get a record on first use. */
+const char *runtime_thread_name(void) { return current ? current->name : "host"; }
 GuestThread *runtime_thread_current(void) {
     if (current) return current;
     GuestThread *t=new_thread();

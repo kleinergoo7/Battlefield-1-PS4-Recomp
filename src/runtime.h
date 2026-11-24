@@ -53,6 +53,8 @@ void runtime_thread_report(void);
 void runtime_thread_count_yield(int zero_sleep);
 void runtime_set_main_tls(const void *data, uint64_t filesz, uint64_t memsz, uint64_t align);
 void runtime_thread_attach_main(void);
+/* Diagnostic-only: current guest thread name ("host" if none). Never allocates. */
+const char *runtime_thread_name(void);
 int32_t *runtime_errno(void);
 uintptr_t runtime_sema_resolve(const char *name);
 void runtime_sema_report(void);
