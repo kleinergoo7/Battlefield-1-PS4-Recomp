@@ -674,9 +674,12 @@ bool Rasterizer::DrawPipeWanted() {
     if (env && env[0]) {
         return env[0] == '1';
     }
-    // Stage B spins while draws flow. Measured ahead with 16 threads (+19%) and with 4 cores /
-    // 8 threads (taskset, Steam Deck-like: +18%).
-    return SpartanThreads::Available() >= 8;
+    // spartanport: BF1's scene rendering is intermittently overexposed on this GPU core
+    // (blown-out/rainbow world; HUD and cutscene video are fine). Disabling the two-stage
+    // draw pipe produced correct frames in A/B tests but did not fix it reliably, so keep
+    // it opt-in until the underlying rendering bug is found. Re-enable with SPARTAN_DRAW_PIPE=1.
+    // return SpartanThreads::Available() >= 8;
+    return false;
 }
 
 bool Rasterizer::UseDrawPipe() const {
