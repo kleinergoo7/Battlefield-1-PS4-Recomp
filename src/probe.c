@@ -384,7 +384,7 @@ static void dump_poll_target(void) {
     snprintf(line,sizeof(line),"  UI global 0x3eb8af0=%p 0x3eb8af8=%p counter=%u\n",(void*)g0,(void*)g1,ctr);
     w_=write(2,line,strlen(line)); (void)w_;
 }
-static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); }
+static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); runtime_sema_dump_blocked(); }
 static void watchdog(int sig, siginfo_t *info, void *context) {
     (void)info;
     const char head[]="STOP: watchdog timeout; thread stacks:\n";
