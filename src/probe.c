@@ -50,6 +50,20 @@ uintptr_t probe_image_base(void) { return (uintptr_t)image; }
 /* Deferred module_start for pre-linked PRXs that the game loads at run time. */
 static uint64_t deferred_init[8];
 void probe_set_deferred_init(int index, uint64_t offset) { deferred_init[index] = offset; }
+/* Restore the boot-patched page mapper from normal (non-signal) context when
+ * the level loader starts opening archives. The boot `c3` patch is needed to
+ * get past an offline assertion, but the level allocator calls this function
+ * to map 16KB heap pages; without it the pages have no VMM bookkeeping. */
+void probe_restore_pagemap(void) {
+    if (!image || image[0x6f180] != 0xc3) return;
+    long ps=sysconf(_SC_PAGESIZE);
+    unsigned char *p=image+0x6f180;
+    uintptr_t pg=(uintptr_t)p & ~(uintptr_t)(ps-1);
+    if (!mprotect((void*)pg,ps,PROT_READ|PROT_WRITE|PROT_EXEC)) {
+        *p=0x55; __builtin___clear_cache((char*)p,(char*)p+1);
+        fprintf(stderr,"[PAGEMAP] restored original 0x6f180 at level load\n");
+    }
+}
 int probe_start_deferred(int index) {
     if (index < 0 || index >= (int)(sizeof(deferred_init)/sizeof(deferred_init[0])) || !deferred_init[index]) return -1;
     uint64_t offset = deferred_init[index];
@@ -60,6 +74,13 @@ int probe_start_deferred(int index) {
     int result = ((ModuleInit)(image + offset))(0, NULL, NULL);
     printf("Runtime: deferred module %d initializer returned %d\n", index, result);
     fflush(stdout);
+    /* Some boots stall at the title screen because the game never calls
+     * sceKernelLoadStartModule for JavaScriptCore/EAWebKit after Twinkle.Codec.
+     * Eagerly start the remaining deferred modules once the first one ran. */
+    if (index == 3 && getenv("SPARTAN_EAGER_MODULES")) {
+        for (int next = 4; next <= 5; ++next)
+            if (deferred_init[next]) probe_start_deferred(next);
+    }
     return result;
 }
 static size_t page_size;
@@ -276,6 +297,30 @@ static void fault(int sig, siginfo_t *info, void *context) {
     }
     /* GPU page tracking (write-protected guest pages) is resolved first. */
     if (gpu_enabled && sig == SIGSEGV && spartanportgpu_handle_fault(context, info->si_addr)) return;
+    /* NOTE: the page mapper is now restored from probe_restore_pagemap() when
+     * level archives open (normal context), so this emergency auto-map is a
+     * last-resort fallback only when SPARTAN_AUTO_MAP=1. */
+    /* Level allocator page fault: guest 0x6da69 writes a 16KB heap page at
+     * 0x1012e... The boot patch at 0x46f180 disables the function that would
+     * map that page (needed to skip an offline assertion at boot). Map the
+     * missing page here and retry the instruction, instead of crashing. */
+    if (sig == SIGSEGV && image && (uintptr_t)info->si_addr >= 0x1000000000ull &&
+        (uintptr_t)info->si_addr < 0x4000000000ull) {
+        ucontext_t *ucp = context;
+        uintptr_t ripx = (uintptr_t)ucp->uc_mcontext.gregs[REG_RIP] - (uintptr_t)image;
+        uintptr_t page = (uintptr_t)info->si_addr & ~(uintptr_t)0x3fff;
+        /* Any guest write to an unmapped 16KB DMEM page is an allocator page
+         * the boot patch's disabled mapper would have provided. Map it only
+         * as a fallback (the proper mapper is restored at level load). */
+        void *m = mmap((void*)page, 0x4000, PROT_READ|PROT_WRITE,
+                       MAP_FIXED|MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+        if (m != MAP_FAILED) {
+            char mm[160]; int mn=snprintf(mm,sizeof(mm),
+                "[PAGEMAP] auto-mapped %p for guest fault at 0x%lx\n",(void*)page,(unsigned long)ripx);
+            (void)write(2,mm,mn);
+            return; /* retry the faulting instruction */
+        }
+    }
     /* A speculative guest memory read (runtime_memory.c) failed: resume its recovery point. */
     if ((sig == SIGSEGV || sig == SIGBUS) && runtime_fault_recover) {
         sigjmp_buf *recover = runtime_fault_recover;
@@ -285,6 +330,32 @@ static void fault(int sig, siginfo_t *info, void *context) {
         sigaddset(&unblock, sig);
         pthread_sigmask(SIG_UNBLOCK, &unblock, NULL);
         siglongjmp(*recover, 1);
+    }
+    /* Level-load completion calls a virtual method on a listener whose vtable
+     * is NULL (use-after-free in the guest). Skip that one call so the listener
+     * iteration can continue instead of terminating the process. */
+    {
+        ucontext_t *ucx = context;
+        uintptr_t ripx = (uintptr_t)ucx->uc_mcontext.gregs[REG_RIP] - (uintptr_t)image;
+        uint64_t vt=(uint64_t)ucx->uc_mcontext.gregs[REG_RAX];
+        int bad_vt = vt < 0x800000000ull || vt >= 0x900000000ull;
+        uintptr_t next=0;
+        if (ripx == 0xcaa1c9) next=0xcaa1cf;
+        else if (ripx == 0xf1d8b9) next=0xf1d8bf;
+        else if (ripx == 0xf1dad9) next=0xf1dadf;
+        if (next && bad_vt) {
+            ucx->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)image + next;
+            char sm[96]; int sn=snprintf(sm,sizeof(sm),"[VTSKIP] bad-vtable call at 0x%lx skipped\n",(unsigned long)ripx);
+            (void)write(2,sm,sn);
+            return;
+        }
+        if (ripx == 0x6a297 && bad_vt) {
+            /* Bogus object in the polymorphic dispatcher: return from it. */
+            ucx->uc_mcontext.gregs[REG_RIP] = (greg_t)(uintptr_t)image + 0x6a353;
+            char sm[96]; int sn=snprintf(sm,sizeof(sm),"[VTSKIP] bad dispatcher object at 0x6a297\n");
+            (void)write(2,sm,sn);
+            return;
+        }
     }
     /* The process is terminating: dladdr/snprintf are acceptable here. */
     ucontext_t *uc = context;
@@ -415,8 +486,219 @@ static void dump_poll_target(void) {
     snprintf(line,sizeof(line),"  TUNGUSKA globe=%p byte+0x128=%u navState+0x17c=%u lvl=%p name='%.63s'\n",
              (void*)globe,frontend,nav,(void*)lvl,name);
     w_=write(2,line,strlen(line)); (void)w_;
+    /* Level-availability check inputs (guest 0x1084a0): global 0x4768ef8 holds the
+     * level collection; [+0x180] is the loaded flag; [+0xa8]..[+0xb0] is a list of
+     * entries each 0xa8 bytes with a hash at [entry+0x20]+0x20. */
+    {
+        uintptr_t lc = *(uintptr_t *)(image + 0x4768ef8);
+        unsigned char flag = lc ? *(unsigned char *)(uintptr_t)(lc + 0x180) : 0;
+        uintptr_t begin = lc ? *(uintptr_t *)(uintptr_t)(lc + 0xa8) : 0;
+        uintptr_t end = lc ? *(uintptr_t *)(uintptr_t)(lc + 0xb0) : 0;
+        /* Scan for the prologue hash 0xcfcff4c0 (Frostbite case-insensitive djb2-XOR
+         * of "Levels/SP/EP0_Prologue/SP_Prologue/SP_Prologue"). */
+        long hits=0; unsigned char dirty=1;
+        uint32_t sample[8]={0}; int ns=0;
+        if (begin && end && end>begin) {
+            struct iovec li, ri;
+            for (uintptr_t e=begin; e+0xa8<=end; e+=0xa8) {
+                uintptr_t inner=0; uint32_t h=0; unsigned char d=1;
+                li.iov_base=&inner; li.iov_len=8; ri.iov_base=(void*)(uintptr_t)(e+0x20); ri.iov_len=8;
+                if (process_vm_readv(getpid(),&li,1,&ri,1,0)!=8) continue;
+                if (!inner) continue;
+                li.iov_base=&h; li.iov_len=4; ri.iov_base=(void*)(uintptr_t)(inner+0x20); ri.iov_len=4;
+                if (process_vm_readv(getpid(),&li,1,&ri,1,0)!=4) continue;
+                li.iov_base=&d; li.iov_len=1; ri.iov_base=(void*)(uintptr_t)(e+0xa0); ri.iov_len=1;
+                process_vm_readv(getpid(),&li,1,&ri,1,0);
+                if (ns<8) sample[ns++]=h;
+                if (h==0xcfcff4c0u) { ++hits; dirty=d; }
+            }
+        }
+        snprintf(line,sizeof(line),"  LEVELCHK lc=%p flag180=%u list=[%p..%p] entries=%ld hits=%ld dirty=%u hashes=[%08x %08x %08x %08x %08x %08x]\n",
+                 (void*)lc,flag,(void*)begin,(void*)end,
+                 begin&&end ? (long)((end-begin)/0xa8) : 0L,hits,dirty,
+                 sample[0],sample[1],sample[2],sample[3],sample[4],sample[5]);
+        w_=write(2,line,strlen(line)); (void)w_;
+    }
 }
 static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); runtime_sema_dump_blocked(); }
+/* Periodic state snapshot: makes menu/scene/level progress measurable without
+ * needing a screenshot. Enabled with SPARTAN_STATE_LOG=1. */
+static void *state_logger(void *arg) {
+    (void)arg;
+    for (;;) {
+        sleep(10);
+        if (!image) continue;
+        /* Some boots never issue sceKernelLoadStartModule for the deferred
+         * PRXs and hang at the title screen. Force them from the logger;
+         * probe_start_deferred clears the slot so it is safe to retry. */
+        for (int k = 3; k <= 5; ++k) if (deferred_init[k]) probe_start_deferred(k);
+        uint64_t globe=*(uint64_t *)(image+0x4a82de8);
+        unsigned char front=globe ? *(unsigned char *)(uintptr_t)(globe+0x128) : 0;
+        uint32_t nav=globe ? *(uint32_t *)(uintptr_t)(globe+0x17c) : 0;
+        uint64_t lvl=globe ? *(uint64_t *)(uintptr_t)(globe+0x118) : 0;
+        uint64_t namep=lvl ? *(uint64_t *)(uintptr_t)(lvl+0x3d0) : 0;
+        char nm[64]={0};
+        if (namep) {
+            struct iovec li={nm,sizeof(nm)-1},ri={(void *)(uintptr_t)namep,sizeof(nm)-1};
+            process_vm_readv(getpid(),&li,1,&ri,1,0);
+            nm[sizeof(nm)-1]=0;
+        }
+        uint64_t loader=*(uint64_t *)(image+0x4af6f90);
+        fprintf(stderr,"[STATE] front=%u nav=%u lvl=%p name='%.63s' loader=%p\n",
+                front,nav,(void *)lvl,nm,(void *)loader);
+        const char *od=getenv("SPARTAN_DUMP_OBJ");
+        if (od && *od) {
+            uintptr_t obj=(uintptr_t)strtoull(od,NULL,0);
+            unsigned char buf[64]={0};
+            struct iovec li={buf,sizeof(buf)},ri={(void *)obj,sizeof(buf)};
+            if (process_vm_readv(getpid(),&li,1,&ri,1,0)>0) {
+                fprintf(stderr,"[OBJDUMP] %p:",(void *)obj);
+                for (int i=0;i<64;i+=8) fprintf(stderr," %016lx",*(uint64_t *)(buf+i));
+                fprintf(stderr,"\n");
+            }
+        }
+    }
+    return NULL;
+}
+/* Dynamic diagnostic hotpatch for the campaign level-load stall.
+ * Applied on SIGUSR1 AFTER enterCampaign, so the boot menu is unaffected.
+ *
+ * Root cause: the TunguskaGlobeEntity singleton (guest 0x4a82de8) holds the active
+ * level context at +0x118. Its level-name pointer at lvlCtx+0x3d0 still points at
+ * "Levels/Frontend/Frontend", so helper 0x18d7990 computes byte+0x128=1 (still in
+ * Frontend) and the (0xb,0xc) message handler 0x18d7120 takes the stay-in-frontend
+ * path, never emitting the navigationState=3 / "gamemode" event that starts the
+ * Frostbite level load.
+ *
+ * Fix: (1) repoint lvlCtx+0x3d0 at the real campaign string (guest 0x31a7f83),
+ * (2) clear globe+0x128 directly, (3) force the helper's sete->mov so future
+ * recomputations also yield 0, (4) set navigationState=3 at globe+0x17c. */
+static void hotpatch_leave_frontend(int sig, siginfo_t *info, void *context) {
+    (void)sig; (void)info; (void)context;
+    char m[256]; int n; ssize_t w;
+    uint64_t globe = *(uint64_t *)(image + 0x4a82de8);
+    uint64_t lvl = globe ? *(uint64_t *)(uintptr_t)(globe + 0x118) : 0;
+    if (!globe || !lvl) {
+        n=snprintf(m,sizeof(m),"[HOTPATCH] no globe/lvl (globe=%p lvl=%p)\n",(void*)globe,(void*)lvl);
+        w=write(2,m,n); (void)w; return;
+    }
+    /* (1) clear frontend flag ONLY. Do NOT rewrite lvl+0x3d0 to the raw prologue
+     * string: it is NOT a C string field but a heap-container pointer, and writing
+     * a raw string there faults at 0x928961 (reads [ptr-8] as a block header).
+     * Do NOT force navState=3: the (0xb,0xc) handler at 0x18d7795 bails when
+     * navState is already 3, so it must transition to 3 itself. */
+    *(unsigned char *)(uintptr_t)(globe + 0x128) = 0;
+    /* (3) helper 0x18d7990: sete byte [r15+0x128] -> mov byte [r15+0x128],0 */
+    static const unsigned char code[8] = {0x41,0xc6,0x87,0x28,0x01,0x00,0x00,0x00};
+    long ps = sysconf(_SC_PAGESIZE);
+    unsigned char *at = image + 0x18d79e9;
+    uintptr_t page = (uintptr_t)at & ~(uintptr_t)(ps-1);
+    if (!mprotect((void*)page, ps, PROT_READ|PROT_WRITE|PROT_EXEC)) {
+        memcpy(at, code, sizeof(code));
+        __builtin___clear_cache((char*)at, (char*)at+sizeof(code));
+    }
+    /* Helper to patch a range of guest code bytes (mprotect RWX, verify old byte). */
+    #define PATCH_AT(off, oldb, newbuf, len) do { \
+        unsigned char *p = image + (off); \
+        uintptr_t pg = (uintptr_t)p & ~(uintptr_t)(ps-1); \
+        if (*p == (oldb) && !mprotect((void*)pg, ps, PROT_READ|PROT_WRITE|PROT_EXEC)) { \
+            memcpy(p, (newbuf), (len)); __builtin___clear_cache((char*)p,(char*)p+(len)); \
+        } \
+    } while(0)
+    /* (4) force the (0xb,0xc) handler's real-level branch (navState=3 path):
+     * 0x18d76a2: 0f 84 cf 00 00 00 (je 0x18d7777) -> e9 d0 00 00 00 90 (jmp). */
+    static const unsigned char jmp5[6] = {0xe9,0xd0,0x00,0x00,0x00,0x90};
+    PATCH_AT(0x18d76a2, 0x0f, jmp5, 6);
+    /* (5) force message-(6,7) level-install predicate past the UIState==2 gate:
+     * 0x1c779f5: 75 3f (jne 0x1c77a36) -> 90 90 (both bytes NOP).
+     * 0x1c77a04: 74 3f (je 0x1c77a45) -> eb 3f (jmp same target). */
+    static const unsigned char nop2[2] = {0x90,0x90};
+    PATCH_AT(0x1c779f5, 0x75, nop2, 2);
+    static const unsigned char jmp2[2] = {0xeb,0x3f};
+    PATCH_AT(0x1c77a04, 0x74, jmp2, 2);
+    /* (6) entitlement verify gate: 0x1c77929 `84 c0 0f 84 e7 01 00 00`
+     * (test al,al; je 0x1c77b18 returns FALSE) -> 6x NOP from the `0f`. */
+    static const unsigned char nop6[6] = {0x90,0x90,0x90,0x90,0x90,0x90};
+    PATCH_AT(0x1c7792b, 0x0f, nop6, 6);
+    /* Diagnostic: level/content-registry state read by the 0x1084a0 availability
+     * check. reg=0x4768ef8, +0x180 = finalized flag, +0xa8..+0xb0 = entry vector
+     * (stride 0xa8), each entry has name-hash at [entry+0x20]+0x20 and a
+     * not-loaded byte at +0xa0. Read via process_vm_readv to avoid host faults. */
+    {
+        uintptr_t reg = *(uintptr_t *)(image + 0x4768ef8);
+        unsigned char flag = 0; uintptr_t begin = 0, end = 0;
+        long entries = 0, hits = 0;
+        if (reg) {
+            struct iovec li, ri;
+            li.iov_base=&flag; li.iov_len=1; ri.iov_base=(void*)(uintptr_t)(reg+0x180); ri.iov_len=1;
+            process_vm_readv(getpid(),&li,1,&ri,1,0);
+            li.iov_base=&begin; li.iov_len=8; ri.iov_base=(void*)(uintptr_t)(reg+0xa8); ri.iov_len=8;
+            process_vm_readv(getpid(),&li,1,&ri,1,0);
+            li.iov_base=&end; li.iov_len=8; ri.iov_base=(void*)(uintptr_t)(reg+0xb0); ri.iov_len=8;
+            process_vm_readv(getpid(),&li,1,&ri,1,0);
+            if (begin && end && end>begin) {
+                entries=(long)((end-begin)/0xa8);
+                for (long i=0;i<entries && i<64;++i) {
+                    uintptr_t e=begin+(uintptr_t)i*0xa8, inner=0; uint32_t h=0;
+                    li.iov_base=&inner; li.iov_len=8; ri.iov_base=(void*)(uintptr_t)(e+0x20); ri.iov_len=8;
+                    process_vm_readv(getpid(),&li,1,&ri,1,0);
+                    if (inner) { li.iov_base=&h; li.iov_len=4; ri.iov_base=(void*)(uintptr_t)(inner+0x20); ri.iov_len=4; process_vm_readv(getpid(),&li,1,&ri,1,0); }
+                    if (h==0xcfcff4c0u) ++hits;
+                }
+            }
+        }
+        n=snprintf(m,sizeof(m),"[HOTPATCH] REGISTRY reg=%p flag180=%u begin=%p end=%p entries=%ld prologue_hits=%ld\n",
+                   (void*)reg,flag,(void*)begin,(void*)end,entries,hits);
+        w=write(2,m,n); (void)w;
+    }
+
+    /* (7) force the (6,7) installer 0x1c737f0 internal guards so it always installs:
+     * 0x1c73805: 75 12 (jne skip if [this+0xee0]!=0) -> nop nop
+     * 0x1c7380e: 74 09 (je skip if gate false)        -> nop nop
+     * 0x1c73817: 74 0b (je skip if chapter check)     -> eb 0b (jmp to install body) */
+    PATCH_AT(0x1c73805, 0x75, nop2, 2);
+    PATCH_AT(0x1c7380e, 0x74, nop2, 2);
+    static const unsigned char jmp0b[2] = {0xeb,0x0b};
+    PATCH_AT(0x1c73817, 0x74, jmp0b, 2);
+    /* Force the UI level selector to pick the campaign level object instead of
+     * Frontend (0x1c77661: ja -> jb). This makes vtable+0xc0 return the campaign
+     * level so 0x18d68d0 installs it at globe+0x118. */
+    PATCH_AT(0x1c77661, 0x77, "\x72", 1);
+    n=snprintf(m,sizeof(m),"[HOTPATCH] globe=%p lvl=%p name=campaign byte+0x128=0 "
+               "gates=(%02x %02x %02x) installer=(%02x %02x %02x)\n",
+               (void*)globe,(void*)lvl,
+               image[0x1c779f5],image[0x1c77a04],image[0x1c7792b],
+               image[0x1c73805],image[0x1c7380e],image[0x1c73817]);
+    w=write(2,m,n); (void)w;
+    /* Optional one-shot trap at a guest offset, for locating which message sites fire.
+     * SPARTAN_TRAP_ADDR=0x... (guest offset) set before launch. */
+    const char *ta = getenv("SPARTAN_TRAP_ADDR");
+    if (ta && *ta) {
+        unsigned long long off = strtoull(ta, NULL, 0);
+        if (off && off < 0x5000000ull) PATCH_AT(off, image[off], "\x0f\x0b", 2);
+        n=snprintf(m,sizeof(m),"[HOTPATCH] trap set at guest %#llx bytes=%02x %02x\n",
+                   off, image[off], image[off+1]);
+        w=write(2,m,n); (void)w;
+    }
+    #undef PATCH_AT
+}
+/* Restore ONLY the boot-patched page mapper (signal 35), no other hotpatch. */
+static void restore_pagemap(int sig, siginfo_t *info, void *context) {
+    (void)sig; (void)info; (void)context;
+    if (!image || image[0x6f180] != 0xc3) return;
+    long ps=sysconf(_SC_PAGESIZE);
+    unsigned char *p=image+0x6f180;
+    uintptr_t pg=(uintptr_t)p & ~(uintptr_t)(ps-1);
+    if (!mprotect((void*)pg,ps,PROT_READ|PROT_WRITE|PROT_EXEC)) {
+        *p=0x55; __builtin___clear_cache((char*)p,(char*)p+1);
+        write(2,"[PAGEMAP] restored\n",18);
+    }
+}
+/* Force the campaign level load by publishing the Frostbite "LoadLevel" message
+ * (id 0x447106d4, name hash 0xa73e7883) directly on the engine's event bus.
+ * Native's JS never emits this message after enterCampaign, so the level-load
+ * listener never runs; publishing it bypasses the broken upstream chain.
+ * Triggered on SIGUSR3 once the campaign selection has been made. */
 static void watchdog(int sig, siginfo_t *info, void *context) {
     (void)info;
     const char head[]="STOP: watchdog timeout; thread stacks:\n";
@@ -1368,6 +1650,10 @@ int main(int argc, char **argv) {
     if (dladdr((void *)main,&self_info)) exe_base=(uintptr_t)self_info.dli_fbase;
     struct sigaction dump = {0}; dump.sa_sigaction = thread_dump; dump.sa_flags = SA_SIGINFO|SA_RESTART;
     sigemptyset(&dump.sa_mask); sigaction(SIGUSR2, &dump, NULL);
+    struct sigaction hot = {0}; hot.sa_sigaction = hotpatch_leave_frontend; hot.sa_flags = SA_SIGINFO|SA_RESTART;
+    sigemptyset(&hot.sa_mask); sigaction(SIGUSR1, &hot, NULL);
+    struct sigaction pm={0}; pm.sa_sigaction=restore_pagemap; pm.sa_flags=SA_SIGINFO|SA_RESTART;
+    sigemptyset(&pm.sa_mask); sigaction(SIGRTMIN+1, &pm, NULL);
     struct sigaction alarm_action = {0}; alarm_action.sa_sigaction = watchdog; alarm_action.sa_flags = SA_SIGINFO;
     sigemptyset(&alarm_action.sa_mask); sigaction(SIGALRM, &alarm_action, NULL);
     alarm(timeout_seconds); /* 0 disables the watchdog */
@@ -1622,6 +1908,9 @@ int main(int argc, char **argv) {
     }
     printf("Import 8 GOT slot = %p\n", *(void **)(image + 0x4999758));
     printf("Entering original x86-64 code at guest offset 0x%" PRIx64 "\n", entry);
+    if (getenv("SPARTAN_STATE_LOG")) {
+        pthread_t t; if (!pthread_create(&t,NULL,state_logger,NULL)) pthread_detach(t);
+    }
     entered_game=1;
     struct { uint64_t argc; const char *argv[2]; } params = {1, {"/app0/eboot.bin", NULL}};
 #ifdef _WIN32

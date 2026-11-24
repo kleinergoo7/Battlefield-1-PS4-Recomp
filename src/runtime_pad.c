@@ -940,6 +940,21 @@ static void record_sample(const PadData *d) {
     if (!path || !*path || !sdl_ready) return;
     const bool *k=SDL_GetKeyboardState(NULL);
     const int f9=k && k[SDL_SCANCODE_F9];
+    /* SPARTAN_PAD_AUTO_RECORD=1: start recording at the first pad read, no F9
+     * needed (lets the player just pick up the DS4 and play). F9 still toggles. */
+    static int auto_pending=-1;
+    if (auto_pending<0) {
+        const char *a=getenv("SPARTAN_PAD_AUTO_RECORD");
+        auto_pending=a && a[0]=='1';
+    }
+    if (auto_pending && !record_file) {
+        if ((record_file=fopen(path,"w"))) {
+            record_start=now_us();
+            memset(&record_last,0xff,sizeof(record_last));
+            printf("Runtime: pad recording started automatically (%s)\n",path);
+        }
+        auto_pending=0;
+    }
     if (f9 && !f9_was_down) {
         if (record_file) {
             fclose(record_file); record_file=NULL;

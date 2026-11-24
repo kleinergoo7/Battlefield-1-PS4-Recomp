@@ -49,7 +49,7 @@ static uint64_t pool_size_bytes(void) {
 #define PAGE UINT64_C(16384)
 #define USER_MIN UINT64_C(0x1000000000)
 #define USER_MAX UINT64_C(0xfc00000000)
-#define LIMIT 4096
+#define LIMIT 262144
 #define INVALID ((int32_t)UINT32_C(0x80020016))
 #define NO_MEMORY ((int32_t)UINT32_C(0x8002000c))
 #define ACCESS ((int32_t)UINT32_C(0x8002000d))
@@ -946,7 +946,21 @@ static ABI int32_t virtual_query(const void *address, int flags, VirtualQueryInf
     if (!info || info_size!=sizeof(*info)) return INVALID;
     read_lock();
     size_t i=vma_index((uintptr_t)address);
-    if (i==vma_count || (vmas[i].start>(uintptr_t)address && !(flags & 1))) { read_unlock(); return ACCESS; }
+    if (i==vma_count || (vmas[i].start>(uintptr_t)address && !(flags & 1))) {
+        read_unlock();
+        /* Pages auto-mapped by the fault handler (boot patch disables the
+         * guest's page mapper) are not in the VMA table. Synthesize a direct
+         * mapping so the game's VirtualQuery assertion does not abort. */
+        uintptr_t a=(uintptr_t)address;
+        if (a>=0x1000000000ull && a<0x4000000000ull && !(a & 0x3fff)) {
+            memset(info,0,sizeof(*info));
+            info->start=a; info->end=a+0x4000;
+            info->protection=3; info->memory_type=0; info->flags=2|16;
+            strcpy(info->name,"direct");
+            return 0;
+        }
+        return ACCESS;
+    }
     Vma v=vmas[i];
     __atomic_add_fetch(&queries,1,__ATOMIC_RELAXED);
     read_unlock();

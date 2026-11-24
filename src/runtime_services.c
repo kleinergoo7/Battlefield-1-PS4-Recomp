@@ -915,11 +915,25 @@ static ABI int32_t playgo_todo(int32_t handle,const void *list,uint32_t count) {
     if (!list) return PLAYGO_BAD_POINTER;
     return count ? 0 : PLAYGO_BAD_SIZE; /* everything is installed: nothing to schedule */
 }
+/* scePlayGoGetToDoList(handle, list, count, *out) - nothing left to install. */
+static ABI int32_t playgo_get_todo(int32_t handle, void *list, uint32_t count, uint32_t *out) {
+    if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
+    if (!list || !out) return PLAYGO_BAD_POINTER;
+    if (!count) return PLAYGO_BAD_SIZE;
+    *out = 0;
+    return 0;
+}
 static ABI int32_t playgo_close(int32_t handle) {
     if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
     playgo_handle=0; return 0;
 }
 static ABI int32_t playgo_terminate(void) { playgo_handle=0; return 0; }
+/* scePlayGoGetLanguageMask(handle, uint32_t *out) - English only. */
+static ABI int32_t playgo_lang_mask(int32_t handle, uint32_t *out) {
+    if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
+    if (!out) return PLAYGO_BAD_POINTER;
+    *out = 1u; return 0;
+}
 
 /* ---- DiscMap: the game is fully installed, no disc bitmap exists ---- */
 #define DISC_MAP_NO_BITMAP ((int32_t)0x81100004)
@@ -996,11 +1010,10 @@ static const RuntimeExport exports[]={
     {"sceSystemGestureUpdatePrimitiveTouchRecognizer",ok_void},
     {"sceSystemGestureUpdateTouchRecognizer",ok_void},
     {"sceSystemGestureGetTouchEvents",ok_void},
-    {"scePlayGoGetLanguageMask",ok_void}, {"scePlayGoGetProgress",ok_void},
-    {"scePlayGoSetInstallSpeed",ok_void}, {"scePlayGoOpen",ok_void},
-    {"scePlayGoTerminate",ok_void}, {"scePlayGoGetToDoList",ok_void},
-    {"scePlayGoClose",ok_void}, {"scePlayGoGetInstallSpeed",ok_void},
-    {"scePlayGoInitialize",ok_void}, {"scePlayGoGetLocus",ok_void},
+    /* NOTE: PlayGo is implemented at the END of this table with real handlers.
+     * runtime_lookup() returns the FIRST name match, so these early ok_void
+     * stubs used to shadow every real PlayGo implementation (no PlayGo calls at
+     * all, "Installing multiplayer 0%"). They were removed; do not re-add. */
     {"sceCoredumpRegisterCoredumpHandler",ok_void},
     {"sceCoredumpUnregisterCoredumpHandler",ok_void},
     {"sceCoredumpWriteUserData",ok_void},
@@ -1126,6 +1139,7 @@ static const RuntimeExport exports[]={
     {"scePlayGoGetLocus",playgo_locus}, {"scePlayGoSetInstallSpeed",playgo_speed},
     {"scePlayGoGetInstallSpeed",playgo_get_speed}, {"scePlayGoGetProgress",playgo_progress},
     {"scePlayGoSetToDoList",playgo_todo}, {"scePlayGoClose",playgo_close}, {"scePlayGoTerminate",playgo_terminate},
+    {"scePlayGoGetLanguageMask",playgo_lang_mask}, {"scePlayGoGetToDoList",playgo_get_todo},
     {"sceMouseInit",ok_void}, {"sceMouseOpen",mouse_open}, {"sceMouseRead",mouse_read}, {"sceMouseClose",mouse_close},
     {"sceAudioInOpen",audio_in_open},
     {"sceDiscMapIsRequestOnHDD",discmap_on_hdd}, {"sceDiscMap_8A828CAEE7EDD5E9",discmap_8a82},
