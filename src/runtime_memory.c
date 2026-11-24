@@ -769,7 +769,18 @@ static ABI int32_t direct_map(void **out, uint64_t size, int prot, int flags, in
 }
 static ABI int32_t direct_map_named(void **out, uint64_t size, int prot, int flags, int64_t physical,
                                     uint64_t alignment, const char *name) {
-    (void)name; return direct_map(out,size,prot,flags,physical,alignment);
+    /* shadPS4 logs these names (SmallBlockAllocator, MovieArena(UIVideoPlayer),
+     * Level, ...) — they identify the Frostbite load stage. Log new names once. */
+    if (getenv("SPARTAN_DMEM_NAMES") && name && *name) {
+        static char seen[64][64]; static int nseen;
+        int found=0;
+        for (int i=0;i<nseen;++i) if (!strcmp(seen[i],name)) { found=1; break; }
+        if (!found && nseen<64) {
+            snprintf(seen[nseen++],sizeof(seen[0]),"%s",name);
+            fprintf(stderr,"[DMEMNAME] %s size=%llu\n",name,(unsigned long long)size);
+        }
+    }
+    return direct_map(out,size,prot,flags,physical,alignment);
 }
 static int32_t unmap_locked(uintptr_t start, uint64_t size) {
     if (start%PAGE || !size) return INVALID;

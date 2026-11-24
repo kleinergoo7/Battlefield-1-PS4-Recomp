@@ -397,6 +397,24 @@ static void dump_poll_target(void) {
     snprintf(line,sizeof(line),"  OBJ providers 0x4abfaf0=%p +0x68=%p 0x4ab4f40=%p ->+0x78=%p\n",
              (void*)s1,(void*)o1,(void*)s2,(void*)o2);
     w_=write(2,line,strlen(line)); (void)w_;
+    /* TunguskaGlobeEntity singleton (ctor 0x18d5890 stores it at 0x4a82de8).
+     * Handler 0x18d7120 tests byte +0x128 (1: level still Frontend); when 0 it
+     * stores navigationState=3 at +0x17c (0x18d77cf) -> level load. */
+    uint64_t globe = *(uint64_t *)(image + 0x4a82de8);
+    unsigned char frontend = globe ? *(unsigned char *)(uintptr_t)(globe + 0x128) : 0;
+    uint32_t nav = globe ? *(uint32_t *)(uintptr_t)(globe + 0x17c) : 0;
+    uint64_t lvl = globe ? *(uint64_t *)(uintptr_t)(globe + 0x118) : 0;
+    uint64_t namep = lvl ? *(uint64_t *)(uintptr_t)(lvl + 0x3d0) : 0;
+    char name[64] = {0};
+    if (namep) {
+        struct iovec li = { name, sizeof(name)-1 };
+        struct iovec ri = { (void *)(uintptr_t)namep, sizeof(name)-1 };
+        if (process_vm_readv(getpid(), &li, 1, &ri, 1, 0) <= 0) name[0] = 0;
+        name[sizeof(name)-1] = 0;
+    }
+    snprintf(line,sizeof(line),"  TUNGUSKA globe=%p byte+0x128=%u navState+0x17c=%u lvl=%p name='%.63s'\n",
+             (void*)globe,frontend,nav,(void*)lvl,name);
+    w_=write(2,line,strlen(line)); (void)w_;
 }
 static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); dump_poll_target(); runtime_sema_dump_blocked(); }
 static void watchdog(int sig, siginfo_t *info, void *context) {
