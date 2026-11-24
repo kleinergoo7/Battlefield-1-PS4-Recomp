@@ -264,6 +264,30 @@ static ABI int32_t save_icon(const MountPoint *point, const Icon *icon) {
     pthread_mutex_unlock(&lock);
     return r;
 }
+/* Match shadPS4's sceSaveDataLoadIcon: read the mounted save's icon0.png into the
+ * guest buffer and report its size. The bringup stub returned 0 with an empty
+ * buffer, which the game calls twice during the campaign load. */
+static ABI int32_t load_icon(const MountPoint *point, Icon *icon) {
+    if (!initialized) return ERR_NOT_INITIALIZED;
+    if (!point || !icon || !icon->buffer) return ERR_PARAMETER;
+    pthread_mutex_lock(&lock);
+    int slot=slot_of(point);
+    int32_t r=ERR_NOT_MOUNTED;
+    if (slot>=0) {
+        char path[700]; snprintf(path,sizeof(path),"%s/icon0.png",slots[slot].meta);
+        FILE *f=fopen(path,"rb");
+        if (!f) r=ERR_NOT_FOUND;
+        else {
+            fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET);
+            icon->data_size=(uint64_t)(sz>0 ? sz : 0);
+            size_t n=icon->data_size < icon->buffer_size ? (size_t)icon->data_size : (size_t)icon->buffer_size;
+            r=(fread((void*)icon->buffer,1,n,f)==n || n==0) ? 0 : ERR_INTERNAL;
+            fclose(f);
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return r;
+}
 static ABI int32_t save_delete(const Delete *d) {
     if (!initialized) return ERR_NOT_INITIALIZED;
     if (!d || !d->dir || !valid_name(d->dir->data,sizeof(d->dir->data))) return ERR_PARAMETER;
@@ -371,7 +395,7 @@ static const RuntimeExport exports[]={
     {"sceSaveDataInitialize",save_initialize}, {"sceSaveDataInitialize2",save_initialize},
     {"sceSaveDataInitialize3",save_initialize}, {"sceSaveDataTerminate",save_terminate},
     {"sceSaveDataMount",save_mount}, {"sceSaveDataMount2",save_mount2}, {"sceSaveDataUmount",save_umount},
-    {"sceSaveDataSetParam",save_set_param}, {"sceSaveDataSaveIcon",save_icon}, {"sceSaveDataDelete",save_delete},
+    {"sceSaveDataSetParam",save_set_param}, {"sceSaveDataSaveIcon",save_icon}, {"sceSaveDataLoadIcon",load_icon}, {"sceSaveDataDelete",save_delete},
     {"sceSaveDataDirNameSearch",save_search},
     {"sceSaveDataSetupSaveDataMemory",memory_setup}, {"sceSaveDataGetSaveDataMemory",memory_get},
     {"sceSaveDataSetSaveDataMemory",memory_set},
