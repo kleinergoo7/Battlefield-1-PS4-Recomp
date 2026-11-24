@@ -477,7 +477,9 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
      * exit. pthread_detach here would make that impossible. */
     if (t->detached) spawn_reaper(t);
     pthread_mutex_lock(&lock); ++created; pthread_mutex_unlock(&lock);
-    printf("Runtime: guest thread '%s' created (stack=%llu, prio=%d)\n",t->name,(unsigned long long)stack,t->attr.prio);
+    printf("Runtime: guest thread '%s' created (stack=%llu, prio=%d) entry=%p img=%lld\n",
+           t->name,(unsigned long long)stack,t->attr.prio,(void*)t->entry,
+           (long long)((int64_t)(uintptr_t)t->entry-(int64_t)probe_image_base()));
     return 0;
 }
 static ABI int32_t thread_create(GuestThread **out,ThreadAttr **attr,GuestEntry entry,void *argument,const char *name) {

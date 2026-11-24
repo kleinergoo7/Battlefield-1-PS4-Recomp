@@ -82,6 +82,39 @@ typedef void *(ABI *JsGetProp)(void *,void *,void *,void **);
 typedef void *(ABI *JsStrCreate)(const char *);
 static JsGetProp jsc_getprop;
 static JsStrCreate jsc_strcreate;
+/* Wrapper for native->JS calls (JSObjectCallAsFunction). Logs the function name
+ * and first argument so we can see which frostbite messages the engine emits
+ * during the campaign load (e.g. sparta.activated, launchGameStateChanged). */
+static JsCallAsFunc jsc_real_call;
+static void *(ABI jsc_call_native)(void *ctx,void *fn,void *self,size_t argc,void **argv,void **exc) {
+    if (getenv("SPARTAN_JSCALL")) {
+        if (!jsc_tostring) jsc_tostring=(JsToString)(probe_image_base()+0x52c4c50);
+        if (!jsc_utf8) jsc_utf8=(JsGetUtf8)(probe_image_base()+0x52c3180);
+        if (!jsc_getprop) jsc_getprop=(JsGetProp)(probe_image_base()+0x52be200);
+        if (!jsc_strcreate) jsc_strcreate=(JsStrCreate)(probe_image_base()+0x52c2d60);
+        fprintf(stderr,"[JSCALL] fn=%p argc=%zu",fn,argc);
+        for (size_t a=0;a<argc && argv;++a) {
+            void *e=NULL; void *s=argv[a] ? jsc_tostring(ctx,argv[a],&e) : NULL;
+            char b[400]={0}; if (s&&jsc_utf8) jsc_utf8(s,b,sizeof(b)-1);
+            fprintf(stderr," arg%zu='%s'",a,b);
+            /* Dump key fields of any object payload. */
+            if (argv[a] && jsc_getprop && jsc_strcreate) {
+                const char *keys[]={"navigationState","levelName","isMultiplayer","snowroller","state","name","message","type"};
+                for (unsigned k=0;k<sizeof(keys)/sizeof(keys[0]);++k) {
+                    void *key=jsc_strcreate(keys[k]); void *e2=NULL;
+                    void *val=jsc_getprop(ctx,argv[a],key,&e2);
+                    if (val && jsc_tostring) {
+                        void *sv=jsc_tostring(ctx,val,&e2);
+                        char vb[200]={0}; if (sv&&jsc_utf8) jsc_utf8(sv,vb,sizeof(vb)-1);
+                        if (vb[0]) fprintf(stderr," [%s=%s]",keys[k],vb);
+                    }
+                }
+            }
+        }
+        fprintf(stderr,"\n");
+    }
+    return jsc_real_call ? jsc_real_call(ctx,fn,self,argc,argv,exc) : NULL;
+}
 static void *(ABI jsc_handlecall)(void *ctx,void *fn_obj,void *self,size_t argc,void **argv,void **exc) {
     fprintf(stderr,"[HCALL] entered argc=%zu\n",argc);
     if (argc>=1 && argv && argv[0] && jsc_tostring) {
@@ -327,6 +360,11 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     /* JSStringRelease receives NULL when JSValueToStringCopy fails; shadPS4's
      * stub is a no-op, so make it NULL-safe even with real JSC exports active. */
     if (getenv("SPARTAN_JSCB") && name && !strcmp(name,"Tm9bXhmwlMA#libJavaScriptCore")) return (uintptr_t)jsc_makefunccb;
+    /* Route native->JS calls through a logger when SPARTAN_JSCALL is set. */
+    if (getenv("SPARTAN_JSCALL") && name && !strcmp(name,"lgC8W0Qu1iw#libJavaScriptCore")) {
+        if (!jsc_real_call) jsc_real_call=(JsCallAsFunc)(probe_image_base()+0x52bf110);
+        return (uintptr_t)jsc_call_native;
+    }
     if (name && !strcmp(name,"Nm-U+BAjCkY#libJavaScriptCore")) return (uintptr_t)bf1_jsc_noop;
     /* Real JSC/EAWebKit exports are linked in; never shadow them with zero stubs.
      * Exception: shadPS4's eboot gets a zero stub for qiOZEn26Kds (EAWebKit) and

@@ -199,4 +199,17 @@ void runtime_sema_report(void) {
            created,deleted,acquired,signaled,timed_out);
     pthread_mutex_unlock(&lock);
 }
+/* Diagnostic snapshot for a stalled level load: dump every live semaphore with
+ * blocked waiters. Called from the SIGUSR2 thread dump in probe.c. */
+void runtime_sema_dump_blocked(void) {
+    pthread_mutex_lock(&lock);
+    unsigned n=0;
+    for (Sema *s=registry; s; s=s->next) {
+        if (!s->deleted && s->active)
+            fprintf(stderr,"[SEMADUMP] id=%u attr=%u count=%d initial=%d max=%d waiters=%u\n",
+                    s->id,s->attr,s->count,s->initial,s->maximum,s->active), ++n;
+    }
+    fprintf(stderr,"[SEMADUMP] %u semaphores with blocked waiters\n",n);
+    pthread_mutex_unlock(&lock);
+}
 
