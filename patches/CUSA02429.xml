@@ -7,6 +7,8 @@
         <PatchList>
             <Line Type="bytes" Address="0x00470473" Value="c3909090909090909090"/>
             <Line Type="bytes" Address="0x0046f180" Value="c3"/>
+            <Line Type="bytes" Address="0x00406776" Value="9090"/>
+            <Line Type="bytes" Address="0x00522745" Value="4885ff0f84f00900006690"/>
         </PatchList>
     </Metadata>
 </Patch>

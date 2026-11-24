@@ -366,10 +366,15 @@ static void touch_for_write(void *buffer,uint64_t size) {
         *b=*b;
     }
 }
+static int no_touch;
 static int64_t do_read(int fd,void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
-    touch_for_write(buffer,size);
+    if (!no_touch) {
+        const char *e=getenv("SPARTAN_NO_TOUCH");
+        if (e) no_touch=atoi(e) ? 1 : -1;
+    }
+    if (no_touch<=0) touch_for_write(buffer,size);
     const uint64_t wait_start=runtime_wait_begin();
     ssize_t n=host_read(h,buffer,size);
     runtime_wait_end("file read",wait_start,"bytes",(long long)size);

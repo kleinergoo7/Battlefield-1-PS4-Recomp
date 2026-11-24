@@ -344,6 +344,10 @@ static void set_host_name(const char *name) {
 enum { HIGH_GUEST_PRIO = 400 };
 static void set_host_priority(const char *name,int guest_prio) {
     int lower=!strncmp(name,"WorkerThread",12);
+    /* BF1 names its job workers "0f_Job1[0+1]" / "30_Job4[0+4]" (prio 299), which
+     * the literal WorkerThread check misses, so they ran ABOVE normal and could
+     * starve the level loader. SPARTAN_WORKER_LOW lowers every "Job" worker. */
+    if (getenv("SPARTAN_WORKER_LOW") && strstr(name,"Job")) lower=1;
     if (!lower && guest_prio>=HIGH_GUEST_PRIO) return;
 #ifdef _WIN32
     if (!SetThreadPriority(GetCurrentThread(),lower ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_ABOVE_NORMAL))
