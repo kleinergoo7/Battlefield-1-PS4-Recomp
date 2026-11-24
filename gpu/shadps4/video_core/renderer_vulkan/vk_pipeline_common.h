@@ -36,11 +36,6 @@ public:
         return *pipeline;
     }
 
-    // spartanport: an empty handle marks a refused pipeline so callers can skip its work.
-    bool IsValid() const noexcept {
-        return static_cast<bool>(pipeline);
-    }
-
     vk::PipelineLayout GetLayout() const noexcept {
         return *pipeline_layout;
     }
@@ -67,10 +62,6 @@ public:
 
 protected:
     [[nodiscard]] std::string GetDebugString() const;
-
-    /// spartanport: SPARTAN_WAVE_STATS=1: logs the subgroup width the driver compiled each stage of
-    /// `pipeline` at (vk_wave_stats.h). Call once the pipeline exists.
-    void RecordWaveSizes() const;
 
     const Instance& instance;
     Scheduler& scheduler;

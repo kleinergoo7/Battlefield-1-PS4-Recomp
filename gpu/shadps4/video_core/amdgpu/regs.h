@@ -1,15 +1,10 @@
-// SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
 
 #include <algorithm>
-// spartanport: expose dirty words for a sparse scan on every standard library.
-#include <array>
-#include <bit>
-#include <bitset>
-#include <cstring>
-#include <vector>
+
 #include "video_core/amdgpu/regs_color.h"
 #include "video_core/amdgpu/regs_depth.h"
 #include "video_core/amdgpu/regs_primitive.h"
@@ -107,7 +102,7 @@ union Regs {
         u32 draw_initiator;
         INSERT_PADDING_WORDS(3);
         DepthControl depth_control;
-        INSERT_PADDING_WORDS(1);
+        Eqaa depth_eqaa;
         ColorControl color_control;
         DepthShaderControl depth_shader_control;
         ClipperControl clipper_control;
@@ -148,14 +143,17 @@ union Regs {
         LsHsConfig ls_hs_config;
         u32 vgt_gs_vert_itemsize[4];
         TessellationConfig tess_config;
-        INSERT_PADDING_WORDS(3);
+        AlphaToMask alpha_to_mask;
+        INSERT_PADDING_WORDS(2);
         PolygonOffset poly_offset;
         GsInstances vgt_gs_instance_cnt;
         StreamOutConfig vgt_strmout_config;
         StreamOutBufferConfig vgt_strmout_buffer_config;
         INSERT_PADDING_WORDS(17);
         AaConfig aa_config;
-        INSERT_PADDING_WORDS(31);
+        INSERT_PADDING_WORDS(21);
+        AaSampleMask aa_mask;
+        INSERT_PADDING_WORDS(8);
         ColorBuffer color_buffers[NUM_COLOR_BUFFERS];
         INSERT_PADDING_WORDS(7343);
         StreamOutControl cp_strmout_cntl;
@@ -189,82 +187,37 @@ union Regs {
         return nullptr;
     }
 
+    /// Screen, window and generic scissors combined, with the window offset applied and
+    /// negative values clamped to 0.
+    Scissor GetCombinedScissor() const {
+        const bool enable_offset = !window_scissor.window_offset_disable;
+        const s16 x_offset = enable_offset ? window_offset.window_x_offset : 0;
+        const s16 y_offset = enable_offset ? window_offset.window_y_offset : 0;
+        const auto top_left = [](s16 scr, s16 win, s16 gen, s16 offset) {
+            return Scissor::Clamp(std::max({scr, s16(win + offset), s16(gen + offset)}));
+        };
+        const auto bottom_right = [](s16 scr, s16 win, s16 gen, s16 offset) {
+            return Scissor::Clamp(std::min({scr, s16(win + offset), s16(gen + offset)}));
+        };
+        Scissor scissor{};
+        scissor.top_left_x = top_left(screen_scissor.top_left_x, window_scissor.top_left_x,
+                                      generic_scissor.top_left_x, x_offset);
+        scissor.top_left_y = top_left(screen_scissor.top_left_y, window_scissor.top_left_y,
+                                      generic_scissor.top_left_y, y_offset);
+        scissor.bottom_right_x =
+            bottom_right(screen_scissor.bottom_right_x, window_scissor.bottom_right_x,
+                         generic_scissor.bottom_right_x, x_offset);
+        scissor.bottom_right_y =
+            bottom_right(screen_scissor.bottom_right_y, window_scissor.bottom_right_y,
+                         generic_scissor.bottom_right_y, y_offset);
+        return scissor;
+    }
+
     bool IsClipDisabled() const {
         return clipper_control.clip_disable || primitive_type == PrimitiveType::RectList;
     }
 
     void SetDefaults();
-};
-
-// spartanport: register blocks written by a stretch of packets, and their values at its end. The
-// draw-preparation scanner records one per submission so a worker reaches the state at the
-// start of any later submission without replaying the packets in between.
-struct RegDirty {
-    static constexpr u32 BlockWords = 32;
-    static constexpr u32 NumBlocks = Regs::NumRegs / BlockWords;
-    // spartanport: scan 64 blocks at a time instead of testing every block per draw.
-    static constexpr u32 NumWords = (NumBlocks + 63) / 64;
-    std::array<u64, NumWords> bits{};
-    bool reset = false; ///< ClearState: defaults, then only the blocks marked after it
-
-    void Mark(u32 word, u32 count) {
-        if (count == 0 || word >= Regs::NumRegs) {
-            return;
-        }
-        const u32 last = std::min(word + count, Regs::NumRegs) - 1;
-        for (u32 block = word / BlockWords; block <= last / BlockWords; ++block) {
-            // spartanport: mark the word used by the sparse iterator.
-            bits[block / 64] |= u64{1} << (block % 64);
-        }
-    }
-    // spartanport: visit only marked blocks, in register order.
-    template <typename Func>
-    void ForEach(Func&& func) const {
-        for (u32 index = 0; index < NumWords; ++index) {
-            for (u64 word = bits[index]; word; word &= word - 1) {
-                func(index * 64 + u32(std::countr_zero(word)));
-            }
-        }
-    }
-    template <typename T>
-    void MarkField(const Regs& regs, const T& field) {
-        const auto offset = reinterpret_cast<const u8*>(&field) -
-                            reinterpret_cast<const u8*>(regs.reg_array.data());
-        Mark(u32(offset / sizeof(u32)), u32((sizeof(T) + sizeof(u32) - 1) / sizeof(u32)));
-    }
-    void Clear() {
-        // spartanport: clear the word-backed dirty set.
-        bits.fill(0);
-        reset = false;
-    }
-};
-
-struct RegDelta {
-    bool reset = false;
-    std::vector<u16> blocks;
-    std::vector<u32> words;
-
-    void Capture(const Regs& regs, const RegDirty& dirty) {
-        reset = dirty.reset;
-        blocks.clear();
-        words.clear();
-        // spartanport: capture the same sparse dirty set used by PostDraw.
-        dirty.ForEach([&](u32 block) {
-            blocks.push_back(u16(block));
-            const u32* src = regs.reg_array.data() + block * RegDirty::BlockWords;
-            words.insert(words.end(), src, src + RegDirty::BlockWords);
-        });
-    }
-    void Apply(Regs& regs) const {
-        if (reset) {
-            regs.SetDefaults();
-        }
-        for (size_t i = 0; i < blocks.size(); ++i) {
-            std::memcpy(regs.reg_array.data() + blocks[i] * RegDirty::BlockWords,
-                        words.data() + i * RegDirty::BlockWords,
-                        RegDirty::BlockWords * sizeof(u32));
-        }
-    }
 };
 
 #undef DO_CONCAT2

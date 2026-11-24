@@ -12,6 +12,7 @@ class MemoryManager {
 public:
     void SetRasterizer(Vulkan::Rasterizer* rasterizer_);
     AddressSpace& GetAddressSpace() { return impl; }
+    bool IsValidMapping(VAddr virtual_addr, u64 size) { return IsValidGpuMapping(virtual_addr, size); }
     bool IsValidGpuMapping(VAddr virtual_addr, u64 size) {
         // The PS4's GPU can only handle 40 bit addresses.
         return virtual_addr + size < 0x100'0000'0000ULL;

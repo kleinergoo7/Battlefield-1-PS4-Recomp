@@ -1,12 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// spartanport: report the over-budget allocation fallback once, across allocation threads.
-#include <atomic>
-#include <cstdio>
-#include <cstdlib>
 #include <numeric>
-#include <string_view>
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -36,37 +31,12 @@ std::string_view BufferTypeName(MemoryType type) {
     }
 }
 
-/// spartanport: where the stream buffer lives (SPARTAN_STREAM_MEMORY). Every draw copies its small
-/// read-only buffers from guest memory into it on the Vulkan recording thread. "device"
-/// (shadPS4's choice) is VRAM written through the PCIe BAR: cheap with AMD Smart Access Memory
-/// on a desktop, but on a laptop NVIDIA GPU these writes took half of that thread's time and
-/// it limited the frame rate. "cached" (default) is cached system memory the GPU reads over
-/// PCIe instead; "host" is uncached system memory.
-enum class StreamPlacement { Device, Host, Cached };
-static StreamPlacement StreamMemory() {
-    static const StreamPlacement placement = [] {
-        const char* env = std::getenv("SPARTAN_STREAM_MEMORY");
-        const std::string_view value = env ? env : "cached";
-        if (value == "device") {
-            return StreamPlacement::Device;
-        }
-        return value == "host" ? StreamPlacement::Host : StreamPlacement::Cached;
-    }();
-    return placement;
-}
-
 [[nodiscard]] VkMemoryPropertyFlags MemoryUsagePreferredVmaFlags(MemoryType type) {
-    if (type == MemoryType::Stream && StreamMemory() == StreamPlacement::Cached) {
-        return VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-    }
     return type != MemoryType::DeviceLocal ? VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
                                            : VkMemoryPropertyFlagBits{};
 }
 
 [[nodiscard]] VmaAllocationCreateFlags MemoryUsageVmaFlags(MemoryType type) {
-    if (type == MemoryType::Stream && StreamMemory() == StreamPlacement::Cached) {
-        return VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
-    }
     switch (type) {
     case MemoryType::HostUncached:
     case MemoryType::Stream:
@@ -81,9 +51,6 @@ static StreamPlacement StreamMemory() {
 }
 
 [[nodiscard]] VmaMemoryUsage MemoryUsageVma(MemoryType type) {
-    if (type == MemoryType::Stream && StreamMemory() != StreamPlacement::Device) {
-        return VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-    }
     switch (type) {
     case MemoryType::DeviceLocal:
     case MemoryType::Stream:
@@ -120,7 +87,7 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
     if (mem_type != MemoryType::Sparse) {
         const VmaAllocationCreateFlags bda_flag =
             with_bda ? VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT : 0;
-        const VmaAllocationCreateInfo alloc_ci = {
+        VmaAllocationCreateInfo alloc_ci = {
             .flags =
                 VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT | bda_flag | MemoryUsageVmaFlags(mem_type),
             .usage = MemoryUsageVma(mem_type),
@@ -134,17 +101,11 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
         VkBuffer unsafe_buffer{};
         VkResult result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &alloc_ci, &unsafe_buffer,
                                           &allocation, out_alloc_info);
-        // spartanport: a budget refusal may still fit; keep placement and retry without the budget.
         if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
-            static std::atomic_flag noted = ATOMIC_FLAG_INIT;
-            if (!noted.test_and_set(std::memory_order_relaxed)) {
-                std::printf("GPU memory: buffer allocation failed within budget; retrying without "
-                            "the budget limit (may use system memory).\n");
-                std::fflush(stdout);
-            }
-            VmaAllocationCreateInfo over_budget = alloc_ci;
-            over_budget.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
-            result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &over_budget, &unsafe_buffer,
+            alloc_ci.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+            LOG_WARNING(Render_Vulkan, "Allocating buffer of size {} bytes over budget.",
+                        buffer_ci.size);
+            result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &alloc_ci, &unsafe_buffer,
                                      &allocation, out_alloc_info);
         }
         ASSERT_MSG(result == VK_SUCCESS, "Failed allocating buffer with error {}",
@@ -166,6 +127,13 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
     }
 }
 
+vk::BufferUsageFlags SupportedUsage(const Vulkan::Instance& instance, vk::BufferUsageFlags usage) {
+    if (!instance.IsBufferDeviceAddressSupported()) {
+        usage &= ~vk::BufferUsageFlagBits::eShaderDeviceAddress;
+    }
+    return usage;
+}
+
 Buffer::Buffer(const Vulkan::Instance& instance, VAddr cpu_addr_, u64 size_bytes_,
                MemoryType mem_type_, std::string_view debug_name)
     : cpu_addr{cpu_addr_}, size_bytes{size_bytes_}, mem_type{mem_type_},
@@ -173,7 +141,7 @@ Buffer::Buffer(const Vulkan::Instance& instance, VAddr cpu_addr_, u64 size_bytes
 
     vk::BufferCreateInfo buffer_ci = {
         .size = size_bytes,
-        .usage = AllFlags,
+        .usage = SupportedUsage(instance, AllFlags),
         .sharingMode = vk::SharingMode::eExclusive,
     };
     VmaAllocationInfo alloc_info{};

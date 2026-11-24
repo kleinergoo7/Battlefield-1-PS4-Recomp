@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
@@ -18,7 +18,6 @@
 #include "shader_recompiler/params.h"
 #include "shader_recompiler/resource.h"
 #include "shader_recompiler/runtime_info.h"
-#include "spartanport_guest_memory.h"
 
 namespace Serialization {
 struct Archive;
@@ -45,25 +44,7 @@ struct InfoPersistent {
     SamplerResourceList samplers;
     FMaskResourceList fmasks;
 
-    struct UserDataMask {
-        void Set(IR::ScalarReg reg) noexcept {
-            mask |= 1 << static_cast<u32>(reg);
-        }
-
-        u32 Index(IR::ScalarReg reg) const noexcept {
-            const u32 reg_mask = (1 << static_cast<u32>(reg)) - 1;
-            return std::popcount(mask & reg_mask);
-        }
-
-        u32 NumRegs() const noexcept {
-            return std::popcount(mask);
-        }
-
-        u32 mask;
-    };
-    UserDataMask ud_mask{};
     u32 fetch_shader_sgpr_base{};
-    u32 shared_memory_scratch_size{};
 
     u64 pgm_hash{};
 
@@ -129,20 +110,42 @@ struct Info : InfoPersistent {
     CopyShaderData gs_copy_data;
     u32 uses_patches{};
 
+    struct SharedMemorySegment {
+        IR::Type used_types;
+        u32 size;
+        u32 alignment;
+
+        inline void UseType(IR::Type type) {
+            used_types |= type;
+        }
+        inline void SetMinAlignment(u32 min_align) {
+            alignment = std::max(alignment, min_align);
+        }
+        inline void SetMinSize(u32 min_size) {
+            size = std::max(size, min_size);
+        }
+    };
+
+    SharedMemorySegment shared_guest_segment{};
+    SharedMemorySegment shared_scratch_segment{};
+
+    bool uses_aliased_shared_memory{};
+
     VAddr pgm_base;
     bool has_storage_images{};
     bool has_discard{};
     bool has_image_gather{};
     bool has_image_query{};
-    bool has_readconst{};
+    bool has_flatbuf{};
     bool uses_buffer_atomic_float_min_max{};
     bool uses_image_atomic_float_min_max{};
+    bool uses_shared_atomic_float_min_max{};
+    bool uses_subgroup_id{};
     bool uses_lane_id{};
     bool uses_shader_clock{};
     bool uses_group_quad{};
     bool uses_group_shuffle{};
     bool uses_group_ballot{};
-    IR::Type shared_types{};
     bool uses_fp16{};
     bool uses_fp64{};
     bool uses_pack_10_11_11{};
@@ -152,6 +155,7 @@ struct Info : InfoPersistent {
     bool stores_tess_level_outer{};
     bool stores_tess_level_inner{};
     bool translation_failed{};
+    bool has_movrel{};
 
     std::array<Interpolation, IR::NumParams> fs_interpolation{};
 
@@ -160,120 +164,33 @@ struct Info : InfoPersistent {
         : InfoPersistent(stage_, l_stage_, params.hash), pgm_base{params.Base()},
           user_data{params.user_data} {}
 
-    /// spartanport: user data of this stage as a draw saw it. The GPU command thread refreshes
-    /// user_data/flattened_ud_buf for every draw it decodes, while the draw recording thread
-    /// (vk_draw_pipe.h) may still work on an earlier draw: that thread installs snapshots here.
-    struct UdSnapshot {
-        const Info* info;
-        const u32* user_data;
-        u32 user_data_size;
-        const u32* flat;
-        u32 flat_size;
-        VAddr pgm_base;
-    };
-    static constexpr u32 MaxUdSnapshots = 6;
-    static inline thread_local UdSnapshot ud_snapshots[MaxUdSnapshots];
-    static inline thread_local u32 num_ud_snapshots = 0;
-    /// spartanport: on while ReplayTranslate runs. The resource table walk reads guest memory.
-    static inline thread_local bool replaying = false;
-
-    const UdSnapshot* Snapshot() const noexcept {
-        for (u32 i = 0; i < num_ud_snapshots; ++i) {
-            if (ud_snapshots[i].info == this) {
-                return &ud_snapshots[i];
-            }
-        }
-        return nullptr;
-    }
-    std::span<const u32> UserData() const noexcept {
-        if (const auto* snapshot = Snapshot()) [[unlikely]] {
-            return {snapshot->user_data, snapshot->user_data_size};
-        }
-        return user_data;
-    }
-    std::span<const u32> FlatUserData() const noexcept {
-        if (const auto* snapshot = Snapshot()) [[unlikely]] {
-            return {snapshot->flat, snapshot->flat_size};
-        }
-        return flattened_ud_buf;
-    }
-
-    VAddr ProgramBase() const noexcept {
-        if (const auto* snapshot = Snapshot()) [[unlikely]] {
-            return snapshot->pgm_base;
-        }
-        return pgm_base;
-    }
-
     template <typename T>
     inline T ReadUdSharp(u32 sharp_idx) const noexcept {
-        return *reinterpret_cast<const T*>(&FlatUserData()[sharp_idx]);
-    }
-
-    // spartanport: missing pointer pairs and low table addresses leave no vertex input to fetch.
-    bool UdPointerNull(u32 ptr_index) const noexcept {
-        if (ptr_index == IR::NumScalarRegs) {
-            return false;
-        }
-        const auto ud = UserData();
-        if (ptr_index >= ud.size() || ud.size() - ptr_index < 2) {
-            return true;
-        }
-        u64 pointer;
-        std::memcpy(&pointer, &ud[ptr_index], sizeof(pointer));
-        return (pointer & 0xFFFFFFFFFFFFULL) < 0x10000;
+        return *reinterpret_cast<const T*>(&flattened_ud_buf[sharp_idx]);
     }
 
     template <typename T>
     T ReadUdReg(u32 ptr_index, u32 dword_offset) const noexcept {
-        // spartanport: null or short user data reads as an empty descriptor instead of faulting.
-        T data{};
-        const auto ud = UserData();
-        const u32* base = ud.data();
+        T data;
+        const u32* base = user_data.data();
         if (ptr_index != IR::NumScalarRegs) {
-            if (ptr_index >= ud.size() || ud.size() - ptr_index < 2) {
-                return data;
-            }
-            std::memcpy(&base, &ud[ptr_index], sizeof(base));
+            std::memcpy(&base, &user_data[ptr_index], sizeof(base));
             base = reinterpret_cast<const u32*>(VAddr(base) & 0xFFFFFFFFFFFFULL);
-            if (VAddr(base) < 0x10000) {
-                return data;
-            }
-            // spartanport: a non-null table can be unmapped since the shader was built; a fault
-            // reads as an empty descriptor (evill33t 2756fa5dce).
-            SpartanGuest::Read(&data, reinterpret_cast<std::uintptr_t>(base + dword_offset),
-                               sizeof(T));
-            return data;
-        } else if (dword_offset > ud.size() ||
-                   sizeof(T) > (ud.size() - dword_offset) * sizeof(u32)) {
-            return data;
         }
         std::memcpy(&data, base + dword_offset, sizeof(T));
         return data;
     }
 
-    void PushUd(Backend::Bindings& bnd, PushData& push) const {
-        const auto ud = UserData();
-        u32 mask = ud_mask.mask;
-        while (mask) {
-            const u32 index = std::countr_zero(mask);
-            ASSERT(bnd.user_data < NUM_USER_DATA_REGS && index < NUM_USER_DATA_REGS);
-            mask &= ~(1U << index);
-            push.ud_regs[bnd.user_data++] = ud[index];
-        }
-    }
-
     void AddBindings(Backend::Bindings& bnd) const {
         bnd.buffer += buffers.size();
         bnd.unified += buffers.size() + images.size() + samplers.size();
-        bnd.user_data += ud_mask.NumRegs();
     }
 
     void RefreshFlatBuf() {
         flattened_ud_buf.resize(srt_info.flattened_bufsize_dw);
         ASSERT(user_data.size() <= NUM_USER_DATA_REGS);
         std::memcpy(flattened_ud_buf.data(), user_data.data(), user_data.size_bytes());
-        if (srt_info.walker_func && !replaying) {
+        if (srt_info.walker_func) {
             srt_info.walker_func(user_data.data(), flattened_ud_buf.data());
         }
     }
@@ -283,8 +200,9 @@ struct Info : InfoPersistent {
         auto buf = ReadUdReg<AmdGpu::Buffer>(static_cast<u32>(tess_consts_ptr_base),
                                              static_cast<u32>(tess_consts_dword_offset));
         VAddr tess_constants_addr = buf.base_address;
-        // spartanport: a stale or null buffer reads as zeroed constants (evill33t 2756fa5dce).
-        SpartanGuest::Read(&tess_constants, tess_constants_addr, sizeof(tess_constants));
+        memcpy(&tess_constants,
+               reinterpret_cast<TessellationDataConstantBuffer*>(tess_constants_addr),
+               sizeof(tess_constants));
     }
 
     void Serialize(Serialization::Archive& ar) const;

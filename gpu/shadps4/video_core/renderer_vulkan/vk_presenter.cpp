@@ -7,26 +7,22 @@
 #include "common/path_util.h"
 #include "common/singleton.h"
 #include "core/debug_state.h"
+#include "core/devtools/layer.h"
 #include "core/emulator_settings.h"
+#include "core/libraries/system/systemservice.h"
+#include "imgui/friends_layer.h"
+#include "imgui/invitation_prompt_layer.h"
+#include "imgui/notifications_layer.h"
+#include "imgui/renderer/imgui_core.h"
+#include "imgui/renderer/imgui_impl_vulkan.h"
+#include "imgui/shadnet_notifications_layer.h"
 #include "sdl_window.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
-#include "video_core/renderer_vulkan/vk_gpu_profiler.h"
-#include "video_core/renderer_vulkan/vk_precompile_state.h"
-#include "spartanport_overlay.h"
-#include "spartanport_settings.h"
-#include "spartanport_graphics.h"
-#include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
-#include "video_core/renderer_vulkan/vk_warmup_inbox.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/texture_cache/image.h"
-
-#include <SDL3/SDL.h>
-#include <fmt/format.h>
-#include <miniz.h>
-#include <thread>
 
 #include <algorithm>
 #include <array>
@@ -46,10 +42,9 @@
 #include <sstream>
 #include <system_error>
 #include <vector>
+#include <imgui.h>
+#include <stb_image_write.h>
 #include <vk_mem_alloc.h>
-#ifdef MemoryBarrier
-#undef MemoryBarrier // spartanport: winnt.h macro (through fmt), clashes with vk::MemoryBarrier
-#endif
 
 namespace Vulkan {
 
@@ -134,212 +129,344 @@ static vk::Rect2D FitImage(s32 frame_width, s32 frame_height, s32 swapchain_widt
                          dst_rect.offset.x, dst_rect.offset.y);
 }
 
-// spartanport: F12 screenshots of the game's frame (without the overlay), saved as PNG to the user
-// folder's screenshots/ once the GPU is done; the conversion follows upstream shadPS4.
-namespace {
+enum class ScreenshotKind : u8 {
+    GameOnly,
+    WithOverlays,
+};
 
-float PqToNits(float encoded) {
+struct ScreenshotReadback {
+    ScreenshotKind kind{};
+    std::vector<std::filesystem::path> paths{};
+    VideoCore::Buffer buffer;
+    u32 width{};
+    u32 height{};
+    vk::Format format{};
+    bool hdr_encoded{};
+
+    ScreenshotReadback(const Instance& instance, ScreenshotKind kind_,
+                       std::vector<std::filesystem::path> paths_, const u32 width_,
+                       const u32 height_, const vk::Format format_, const bool hdr_encoded_)
+        : kind{kind_}, paths{std::move(paths_)},
+          buffer{instance, 0, static_cast<u64>(width_) * static_cast<u64>(height_) * 4,
+                 VideoCore::MemoryType::HostCached},
+          width{width_}, height{height_}, format{format_}, hdr_encoded{hdr_encoded_} {}
+};
+
+static std::string SanitizeFilenameComponent(std::string value) {
+    for (char& c : value) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (!std::isalnum(uc) && c != '_' && c != '-') {
+            c = '_';
+        }
+    }
+    if (value.empty()) {
+        return "UNKNOWN";
+    }
+    return value;
+}
+
+static std::vector<std::filesystem::path> BuildScreenshotPaths(const ScreenshotKind kind,
+                                                               const u32 count) {
+    static std::atomic<u64> screenshot_sequence{0};
+    std::vector<std::filesystem::path> paths{};
+    if (count == 0) {
+        return paths;
+    }
+
+    const auto& screenshots_dir = Common::FS::GetUserPath(Common::FS::PathType::ScreenshotsDir);
+    std::filesystem::create_directories(screenshots_dir);
+
+    const auto game_id =
+        SanitizeFilenameComponent(std::string(Common::ElfInfo::Instance().GameSerial()));
+    const auto now = std::chrono::system_clock::now();
+    const auto now_time = std::chrono::system_clock::to_time_t(now);
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() %
+        1000;
+
+    std::tm local_tm{};
+#ifdef _WIN32
+    localtime_s(&local_tm, &now_time);
+#else
+    localtime_r(&now_time, &local_tm);
+#endif
+
+    std::ostringstream stamp;
+    stamp << std::put_time(&local_tm, "%Y%m%d_%H%M%S") << '_' << std::setw(3) << std::setfill('0')
+          << ms;
+
+    const char* suffix = kind == ScreenshotKind::GameOnly ? "game" : "hud";
+    const auto first_sequence = screenshot_sequence.fetch_add(count, std::memory_order_relaxed);
+
+    paths.reserve(count);
+    const auto stamp_str = stamp.str();
+    for (u32 i = 0; i < count; ++i) {
+        paths.emplace_back(screenshots_dir / fmt::format("{}_{}_{}_{:06}.png", game_id, stamp_str,
+                                                         suffix, first_sequence + i));
+    }
+
+    return paths;
+}
+
+static float PqToNits(const float encoded) {
+    // ST.2084 inverse EOTF
     constexpr float m1 = 2610.0f / 16384.0f;
     constexpr float m2 = 2523.0f / 32.0f;
     constexpr float c1 = 3424.0f / 4096.0f;
     constexpr float c2 = 2413.0f / 128.0f;
     constexpr float c3 = 2392.0f / 128.0f;
-    const float vp = std::pow(std::clamp(encoded, 0.0f, 1.0f), 1.0f / m2);
-    return 10000.0f * std::pow(std::max(vp - c1, 0.0f) / std::max(c2 - c3 * vp, 1e-6f), 1.0f / m1);
+
+    const float v = std::clamp(encoded, 0.0f, 1.0f);
+    const float vp = std::pow(v, 1.0f / m2);
+    const float num = std::max(vp - c1, 0.0f);
+    const float den = std::max(c2 - c3 * vp, 1e-6f);
+    return 10000.0f * std::pow(num / den, 1.0f / m1);
 }
 
-// sdr_white_nits: 0 for the game's own HDR10, whose 100 nits become white with the highlights
-// compressed. spartanport: for the SDR picture expanded to HDR10, its white in nits: that maps back
-// to white and the 2.2 power decode is undone, so the screenshot shows the SDR picture (the boosted
-// highlights clip at white).
-u8 HdrToSrgb8(float nits, float sdr_white_nits) {
-    if (sdr_white_nits > 0.0f) {
-        const float linear = std::clamp(nits / sdr_white_nits, 0.0f, 1.0f);
-        return u8(std::pow(linear, 1.0f / 2.2f) * 255.0f + 0.5f);
+static float ToneMapToSdrLinear(const float nits) {
+    // Map absolute HDR luminance into SDR [0,1], preserving 100-nit white.
+    constexpr float sdr_white_nits = 100.0f;
+    const float x = std::max(nits, 0.0f) / sdr_white_nits;
+    const float mapped = (2.0f * x) / (1.0f + x);
+    return std::clamp(mapped, 0.0f, 1.0f);
+}
+
+static float LinearToSrgb(const float linear) {
+    const float x = std::clamp(linear, 0.0f, 1.0f);
+    if (x <= 0.0031308f) {
+        return 12.92f * x;
     }
-    const float x = std::max(nits, 0.0f) / 100.0f; // 100-nit SDR white
-    const float linear = std::clamp(2.0f * x / (1.0f + x), 0.0f, 1.0f);
-    const float srgb = linear <= 0.0031308f ? 12.92f * linear : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
-    return u8(std::clamp(srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
+    return 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
 }
 
-// spartanport: undoes post_process.frag's peak roll-off (sdr_to_hdr10()) on Rec.709 nits: the
-// shader scales a pixel by one factor taken from its brightest channel, so the factor that brings
-// that channel back (SpartanGraphics::HdrRollOff) restores all three. Exact when nothing was rolled
-// off, close for greys; near the curve's flat top the 10-bit PQ steps are too coarse to invert, so
-// with the peak far below paper white x 1.5 a bright coloured highlight can come back a few dozen
-// codes off (pp-pass-test, "screenshot colour").
-void UndoPeakRollOff(float& r, float& g, float& b, const SpartanGraphics::HdrRollOff& roll_off) {
-    const float out = std::max({r, g, b});
-    if (out <= 0.0f) {
-        return;
+static const std::array<float, 1024>& GetPqDecodeNitsLut() {
+    static const std::array<float, 1024> lut = [] {
+        std::array<float, 1024> values{};
+        for (size_t i = 0; i < values.size(); ++i) {
+            values[i] = PqToNits(static_cast<float>(i) / 1023.0f);
+        }
+        return values;
+    }();
+    return lut;
+}
+
+static const std::array<u8, 1024>& GetUnorm10ToU8Lut() {
+    static const std::array<u8, 1024> lut = [] {
+        std::array<u8, 1024> values{};
+        for (size_t i = 0; i < values.size(); ++i) {
+            values[i] = static_cast<u8>((i * 255u + 511u) / 1023u);
+        }
+        return values;
+    }();
+    return lut;
+}
+
+static void CopyImageToReadback(const vk::CommandBuffer& cmdbuf, const vk::Image image,
+                                const vk::ImageLayout layout, ScreenshotReadback& readback) {
+    const vk::BufferImageCopy copy_region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource =
+            {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {readback.width, readback.height, 1},
+    };
+    cmdbuf.copyImageToBuffer(image, layout, readback.buffer.Handle(), copy_region);
+}
+
+static bool ConvertReadbackToRgba8(const ScreenshotReadback& readback, std::vector<u8>& out_rgba) {
+    const u64 pixel_count = static_cast<u64>(readback.width) * static_cast<u64>(readback.height);
+    const u64 byte_size = pixel_count * 4;
+    if (readback.buffer.mapped_data.size() < byte_size) {
+        LOG_ERROR(Render_Vulkan, "Screenshot readback buffer size mismatch (have {}, need {})",
+                  readback.buffer.mapped_data.size(), byte_size);
+        return false;
     }
-    const float scale = float(roll_off.Undo(out) / out);
-    r *= scale, g *= scale, b *= scale;
-}
 
-bool ScreenshotToRgba8(const u8* src, u32 width, u32 height, vk::Format format, bool hdr,
-                       float sdr_white_nits, float sdr_peak_nits, std::vector<u8>& rgba) {
-    const size_t pixels = size_t(width) * height;
-    rgba.resize(pixels * 4);
-    switch (format) {
+    const auto src =
+        std::span<const u8>{readback.buffer.mapped_data.data(), static_cast<size_t>(byte_size)};
+    out_rgba.resize(static_cast<size_t>(byte_size));
+
+    switch (readback.format) {
     case vk::Format::eR8G8B8A8Unorm:
     case vk::Format::eR8G8B8A8Srgb:
-        for (size_t i = 0; i < pixels; ++i) {
-            std::memcpy(&rgba[i * 4], &src[i * 4], 3);
-            rgba[i * 4 + 3] = 255;
+        std::memcpy(out_rgba.data(), src.data(), out_rgba.size());
+        for (u64 i = 0; i < pixel_count; ++i) {
+            out_rgba[static_cast<size_t>(i) * 4 + 3] = 255;
         }
         return true;
     case vk::Format::eB8G8R8A8Unorm:
     case vk::Format::eB8G8R8A8Srgb:
-        for (size_t i = 0; i < pixels; ++i) {
-            rgba[i * 4 + 0] = src[i * 4 + 2];
-            rgba[i * 4 + 1] = src[i * 4 + 1];
-            rgba[i * 4 + 2] = src[i * 4 + 0];
-            rgba[i * 4 + 3] = 255;
+        for (u64 i = 0; i < pixel_count; ++i) {
+            const size_t o = static_cast<size_t>(i) * 4;
+            out_rgba[o + 0] = src[o + 2];
+            out_rgba[o + 1] = src[o + 1];
+            out_rgba[o + 2] = src[o + 0];
+            out_rgba[o + 3] = 255;
         }
         return true;
-    case vk::Format::eA2B10G10R10UnormPack32: {
-        const SpartanGraphics::HdrRollOff roll_off(sdr_white_nits, sdr_peak_nits);
-        static const auto nits = [] {
-            std::array<float, 1024> lut{};
-            for (size_t i = 0; i < lut.size(); ++i) {
-                lut[i] = PqToNits(float(i) / 1023.0f);
-            }
-            return lut;
-        }();
-        for (size_t i = 0; i < pixels; ++i) {
-            u32 packed;
-            std::memcpy(&packed, &src[i * 4], 4);
-            const u32 r = packed & 0x3FF, g = (packed >> 10) & 0x3FF, b = (packed >> 20) & 0x3FF;
-            if (hdr) {
-                // Rec.2020 PQ to SDR Rec.709.
-                const float r2020 = nits[r], g2020 = nits[g], b2020 = nits[b];
-                const float w = sdr_white_nits;
-                float r709 = 1.6605f * r2020 - 0.5876f * g2020 - 0.0728f * b2020;
-                float g709 = -0.1246f * r2020 + 1.1329f * g2020 - 0.0083f * b2020;
-                float b709 = -0.0182f * r2020 - 0.1006f * g2020 + 1.1187f * b2020;
-                if (w > 0.0f) {
-                    UndoPeakRollOff(r709, g709, b709, roll_off);
-                }
-                rgba[i * 4 + 0] = HdrToSrgb8(r709, w);
-                rgba[i * 4 + 1] = HdrToSrgb8(g709, w);
-                rgba[i * 4 + 2] = HdrToSrgb8(b709, w);
+    case vk::Format::eA2R10G10B10UnormPack32: {
+        const auto& pq_decode_lut = GetPqDecodeNitsLut();
+        const auto& unorm10_to_u8 = GetUnorm10ToU8Lut();
+
+        for (u64 i = 0; i < pixel_count; ++i) {
+            const size_t o = static_cast<size_t>(i) * 4;
+            const u32 packed = static_cast<u32>(src[o + 0]) | (static_cast<u32>(src[o + 1]) << 8) |
+                               (static_cast<u32>(src[o + 2]) << 16) |
+                               (static_cast<u32>(src[o + 3]) << 24);
+            const u32 b = (packed >> 0) & 0x3FF;
+            const u32 g = (packed >> 10) & 0x3FF;
+            const u32 r = (packed >> 20) & 0x3FF;
+
+            if (readback.hdr_encoded) {
+                // Rec.2020 + PQ. Convert to SDR Rec.709 for PNG output.
+                const float r2020 = pq_decode_lut[r];
+                const float g2020 = pq_decode_lut[g];
+                const float b2020 = pq_decode_lut[b];
+
+                const float r709_nits = 1.6605f * r2020 - 0.5876f * g2020 - 0.0728f * b2020;
+                const float g709_nits = -0.1246f * r2020 + 1.1329f * g2020 - 0.0083f * b2020;
+                const float b709_nits = -0.0182f * r2020 - 0.1006f * g2020 + 1.1187f * b2020;
+
+                const float r_srgb = LinearToSrgb(ToneMapToSdrLinear(r709_nits));
+                const float g_srgb = LinearToSrgb(ToneMapToSdrLinear(g709_nits));
+                const float b_srgb = LinearToSrgb(ToneMapToSdrLinear(b709_nits));
+
+                out_rgba[o + 0] = static_cast<u8>(std::clamp(r_srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out_rgba[o + 1] = static_cast<u8>(std::clamp(g_srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out_rgba[o + 2] = static_cast<u8>(std::clamp(b_srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
             } else {
-                rgba[i * 4 + 0] = u8((r * 255 + 511) / 1023);
-                rgba[i * 4 + 1] = u8((g * 255 + 511) / 1023);
-                rgba[i * 4 + 2] = u8((b * 255 + 511) / 1023);
+                out_rgba[o + 0] = unorm10_to_u8[r];
+                out_rgba[o + 1] = unorm10_to_u8[g];
+                out_rgba[o + 2] = unorm10_to_u8[b];
             }
-            rgba[i * 4 + 3] = 255;
+            out_rgba[o + 3] = 255;
+        }
+        return true;
+    }
+    case vk::Format::eA2B10G10R10UnormPack32: {
+        const auto& pq_decode_lut = GetPqDecodeNitsLut();
+        const auto& unorm10_to_u8 = GetUnorm10ToU8Lut();
+
+        for (u64 i = 0; i < pixel_count; ++i) {
+            const size_t o = static_cast<size_t>(i) * 4;
+            const u32 packed = static_cast<u32>(src[o + 0]) | (static_cast<u32>(src[o + 1]) << 8) |
+                               (static_cast<u32>(src[o + 2]) << 16) |
+                               (static_cast<u32>(src[o + 3]) << 24);
+            const u32 r = (packed >> 0) & 0x3FF;
+            const u32 g = (packed >> 10) & 0x3FF;
+            const u32 b = (packed >> 20) & 0x3FF;
+
+            if (readback.hdr_encoded) {
+                // HDR swapchain path is Rec.2020 + PQ. Convert to SDR Rec.709 for PNG output.
+                const float r2020 = pq_decode_lut[r];
+                const float g2020 = pq_decode_lut[g];
+                const float b2020 = pq_decode_lut[b];
+
+                const float r709_nits = 1.6605f * r2020 - 0.5876f * g2020 - 0.0728f * b2020;
+                const float g709_nits = -0.1246f * r2020 + 1.1329f * g2020 - 0.0083f * b2020;
+                const float b709_nits = -0.0182f * r2020 - 0.1006f * g2020 + 1.1187f * b2020;
+
+                const float r_srgb = LinearToSrgb(ToneMapToSdrLinear(r709_nits));
+                const float g_srgb = LinearToSrgb(ToneMapToSdrLinear(g709_nits));
+                const float b_srgb = LinearToSrgb(ToneMapToSdrLinear(b709_nits));
+
+                out_rgba[o + 0] = static_cast<u8>(std::clamp(r_srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out_rgba[o + 1] = static_cast<u8>(std::clamp(g_srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out_rgba[o + 2] = static_cast<u8>(std::clamp(b_srgb, 0.0f, 1.0f) * 255.0f + 0.5f);
+            } else {
+                out_rgba[o + 0] = unorm10_to_u8[r];
+                out_rgba[o + 1] = unorm10_to_u8[g];
+                out_rgba[o + 2] = unorm10_to_u8[b];
+            }
+            out_rgba[o + 3] = 255;
         }
         return true;
     }
     default:
+        LOG_WARNING(Render_Vulkan, "Unsupported screenshot format: {}",
+                    vk::to_string(readback.format));
         return false;
     }
 }
 
-std::filesystem::path ScreenshotPath(bool generated) {
-    const auto& dir = Common::FS::GetUserPath(Common::FS::PathType::ScreenshotsDir);
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    std::string serial{Common::ElfInfo::Instance().GameSerial()};
-    if (serial.empty()) {
-        serial = "spartanport";
+static bool WritePng(const std::filesystem::path& path, const std::span<const u8> rgba,
+                     const u32 width, const u32 height) {
+    Common::FS::IOFile file(path, Common::FS::FileAccessMode::Create);
+    if (!file.IsOpen()) {
+        return false;
     }
-    const auto now = std::chrono::system_clock::now();
-    const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-    std::tm local{};
-#ifdef _WIN32
-    localtime_s(&local, &now_time);
-#else
-    localtime_r(&now_time, &local);
-#endif
-    const auto ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
-    char name[96];
-    std::snprintf(name, sizeof(name), "%s_%04d%02d%02d_%02d%02d%02d_%03d%s.png", serial.c_str(),
-                  local.tm_year + 1900, local.tm_mon + 1, local.tm_mday, local.tm_hour, local.tm_min,
-                  local.tm_sec, int(ms), generated ? "-fg" : "");
-    return dir / name;
+
+    auto callback = [](void* context, void* data, int size) {
+        const auto* f = static_cast<Common::FS::IOFile*>(context);
+        f->WriteRaw<u8>(data, size);
+    };
+    return stbi_write_png_to_func(callback, &file, width, height, 4, rgba.data(), 0);
 }
 
-/// Records the copy of `image` (layout TransferSrcOptimal) and saves it once the GPU is done.
-void CaptureScreenshot(const Instance& instance, Scheduler& scheduler, vk::CommandBuffer cmdbuf,
-                       const Frame& frame) {
-    const VkBufferCreateInfo buffer_ci{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                                       .size = VkDeviceSize(frame.width) * frame.height * 4,
-                                       .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-    const VmaAllocationCreateInfo alloc_ci{
-        .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST};
-    VkBuffer buffer{};
-    VmaAllocation allocation{};
-    VmaAllocationInfo info{};
-    if (vmaCreateBuffer(instance.GetAllocator(), &buffer_ci, &alloc_ci, &buffer, &allocation, &info) !=
-        VK_SUCCESS) {
-        LOG_ERROR(Render_Vulkan, "Screenshot: no memory for the readback");
+static void SavePendingScreenshot(const ScreenshotReadback& readback) {
+    if (readback.paths.empty()) {
         return;
     }
-    cmdbuf.copyImageToBuffer(frame.image, vk::ImageLayout::eTransferSrcOptimal, buffer,
-                             vk::BufferImageCopy{.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-                                                 .imageExtent = {frame.width, frame.height, 1}});
-    const vk::MemoryBarrier to_host{
-        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-        .dstAccessMask = vk::AccessFlagBits::eHostRead,
-    };
-    cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost,
-                           vk::DependencyFlags{}, to_host, {}, {});
-    scheduler.DeferPriorityOperation([allocator = instance.GetAllocator(), buffer, allocation, info,
-                                      width = frame.width, height = frame.height,
-                                      format = frame.format, hdr = frame.is_hdr,
-                                      sdr_white_nits = frame.sdr_white_nits,
-                                      sdr_peak_nits = frame.sdr_peak_nits,
-                                      path = ScreenshotPath(frame.is_generated)] {
-        vmaInvalidateAllocation(allocator, allocation, 0, VK_WHOLE_SIZE);
-        std::vector<u8> rgba;
-        const bool converted =
-            ScreenshotToRgba8(static_cast<const u8*>(info.pMappedData), width, height, format, hdr,
-                              sdr_white_nits, sdr_peak_nits, rgba);
-        vmaDestroyBuffer(allocator, buffer, allocation);
-        if (!converted) {
-            LOG_ERROR(Render_Vulkan, "Screenshot: unsupported format {}", vk::to_string(format));
-            SpartanOverlay::ShowNotice("Screenshot failed: unsupported image format");
-            return;
-        }
-        size_t png_size = 0;
-        void* png = tdefl_write_image_to_png_file_in_memory_ex(rgba.data(), int(width), int(height), 4,
-                                                               &png_size, 6, MZ_FALSE);
-        bool saved = false;
-        if (png) {
-#ifdef _WIN32
-            FILE* f = _wfopen(path.wstring().c_str(), L"wb"); // the user folder may not be ASCII
-#else
-            FILE* f = std::fopen(path.c_str(), "wb");
-#endif
-            if (f) {
-                saved = std::fwrite(png, 1, png_size, f) == png_size;
-                saved = std::fclose(f) == 0 && saved;
-            }
-            mz_free(png);
-        }
-        if (saved) {
-            std::printf("Screenshot: %s (%ux%u)\n", Common::FS::PathToUTF8String(path).c_str(), width, height);
-            SpartanOverlay::ShowNotice("Screenshot saved: " + Common::FS::PathToUTF8String(path.filename()));
-        } else {
-            LOG_ERROR(Render_Vulkan, "Screenshot: cannot write {}", Common::FS::PathToUTF8String(path));
-            SpartanOverlay::ShowNotice("Screenshot failed: cannot write the file");
-        }
-    });
-}
 
-} // namespace
+    std::vector<u8> rgba;
+    if (!ConvertReadbackToRgba8(readback, rgba)) {
+        return;
+    }
+
+    const auto& primary_path = readback.paths.front();
+    if (!WritePng(primary_path, rgba, readback.width, readback.height)) {
+        LOG_ERROR(Render_Vulkan, "Failed saving screenshot to {}", primary_path.string());
+        return;
+    }
+
+    LOG_INFO(Render_Vulkan, "Saved screenshot: {}", primary_path.string());
+
+    std::ifstream file(primary_path, std::ios::binary);
+    std::vector<u8> imgdata;
+    if (file) {
+        imgdata =
+            std::vector<u8>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    }
+    shadNotifications::QueueNotification("Saved screenshot:\n" + primary_path.string(), 3.0f,
+                                         shadNotifications::position::BottomRight, imgdata);
+
+    for (size_t i = 1; i < readback.paths.size(); ++i) {
+        const auto& path = readback.paths[i];
+        std::error_code ec{};
+        std::filesystem::copy_file(primary_path, path, std::filesystem::copy_options::none, ec);
+        if (ec) {
+            // Fallback for platforms/filesystems where copy_file can fail for transient
+            // reasons.
+            if (!WritePng(path, rgba, readback.width, readback.height)) {
+                LOG_ERROR(Render_Vulkan, "Failed saving screenshot to {}", path.string());
+                continue;
+            }
+        }
+
+        LOG_INFO(Render_Vulkan, "Saved screenshot: {}", path.string());
+        std::ifstream file(path, std::ios::binary);
+        std::vector<u8> imgdata;
+        if (file) {
+            imgdata = std::vector<u8>(std::istreambuf_iterator<char>(file),
+                                      std::istreambuf_iterator<char>());
+        }
+        shadNotifications::QueueNotification("Saved screenshot:\n" + path.string(), 3.0f,
+                                             shadNotifications::position::BottomRight, imgdata);
+    }
+}
 
 Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_)
     : window{window_}, liverpool{liverpool_},
       instance{window, EmulatorSettings.GetGpuId(), EmulatorSettings.IsVkValidationEnabled(),
                EmulatorSettings.IsVkCrashDiagnosticEnabled()},
-      draw_scheduler{instance, true}, present_scheduler{instance}, flip_scheduler{instance},
+      draw_scheduler{instance}, present_scheduler{instance}, flip_scheduler{instance},
       swapchain{instance, window}, runtime{instance, draw_scheduler},
       rasterizer{std::make_unique<Rasterizer>(instance, draw_scheduler, runtime, liverpool)},
       texture_cache{rasterizer->GetTextureCache()} {
@@ -357,130 +484,25 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
         free_queue.push(&frame);
     }
 
-    // Two filtered frames per presented one with frame generation: twice the outputs in turn.
-    aa_pass.Create(device, instance.GetAllocator(), num_images * 2);
+    fsr_settings.enable = EmulatorSettings.IsFsrEnabled();
+    fsr_settings.use_rcas = EmulatorSettings.IsRcasEnabled();
+    fsr_settings.rcas_attenuation =
+        static_cast<float>(EmulatorSettings.GetRcasAttenuation() / 1000.f);
+
     fsr_pass.Create(device, instance.GetAllocator(), num_images);
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
-    if (swapchain.GetHDR()) {
-        // spartanport: HDR output; the SDR picture is expanded until a flip says otherwise. With
-        // Match Windows HDR settings (hdr_auto) the paper white and peak are the display's, read
-        // once here like the HDR switch itself; each goes into its slider's setting, which the menu
-        // shows greyed out and which turning the option off starts from. A value Windows does not
-        // report (SpartanGraphics::HdrNits) keeps the slider's own.
-        pp_settings.hdr = 2;
-        auto& s = SpartanSettings::Get();
-        const Frontend::WindowSystemInfo info = window.GetWindowInfo();
-        const SpartanGraphics::HdrNits display =
-            SpartanGraphics::HdrFromDisplay(info.sdr_white_level, info.hdr_headroom);
-        s.hdr_paper_white_known = display.paper_white_known;
-        s.hdr_peak_known = display.peak_known;
-        const bool paper_from_display = s.hdr_auto && display.paper_white_known;
-        const bool peak_from_display = s.hdr_auto && display.peak_known;
-        if (paper_from_display) {
-            s.hdr_paper_white = display.paper_white;
-        }
-        if (peak_from_display) {
-            s.hdr_peak = display.peak;
-        }
-        pp_settings.hdr_paper_white = float(s.hdr_paper_white.load());
-        pp_settings.hdr_peak = float(s.hdr_peak.load());
-        std::printf("HDR output: on (HDR10), paper white %d nits (%s), peak %d nits (%s)\n",
-                    s.hdr_paper_white.load(), paper_from_display ? "from Windows" : "the menu's",
-                    s.hdr_peak.load(), peak_from_display ? "from Windows" : "the menu's");
-    }
-    // spartanport: on the HDR10 swapchain the menu's white is the picture's paper white.
-    SpartanOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images,
-                         swapchain.GetHDR() ? pp_settings.hdr_paper_white : 0.0f);
 
-    const bool binary_cache = EmulatorSettingsImpl::Flag("SPARTAN_PIPELINE_BINARIES", true) &&
-                              EmulatorSettings.IsPipelineCacheEnabled();
-    const bool capture_only = EmulatorSettingsImpl::Flag("SPARTAN_PIPELINE_BINARY_ISOLATED", false) &&
-                              EmulatorSettingsImpl::Flag("SPARTAN_PIPELINE_CAPTURE_ONLY", false);
-    // spartanport: on the first start, the shipped shader list (shaders/<serial>.spm beside the
-    // executable) fills the shader cache before the game runs. Esc or Circle (B) skips; the window
-    // thread keeps the keyboard and gamepad state current.
-    {
-        const char* base = SDL_GetBasePath();
-        const auto list = ShaderListPath(std::filesystem::path(base ? base : "") / "shaders",
-                                         std::string(Common::ElfInfo::Instance().GameSerial()));
-        SDL_Gamepad* pad = nullptr;
-        int pads = 0;
-        if (SDL_JoystickID* ids = SDL_GetGamepads(&pads)) {
-            pad = pads > 0 ? SDL_OpenGamepad(ids[0]) : nullptr;
-            SDL_free(ids);
-        }
-        auto last = std::chrono::steady_clock::time_point{};
-        bool shown = false;
-        const auto progress = [&](u32 done, u32 total) {
-            const bool* keys = SDL_GetKeyboardState(nullptr);
-            if ((keys && keys[SDL_SCANCODE_ESCAPE]) ||
-                (pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST))) {
-                return false;
-            }
-            const auto now = std::chrono::steady_clock::now();
-            // About 30 frames a second: the screen's ember and sparks move smoothly.
-            if (now - last >= std::chrono::milliseconds(33)) {
-                last = now;
-                shown = true;
-                SpartanOverlay::SetLoading(true, done, total);
-                PresentLoadingFrame();
-            }
-            return true;
-        };
-        const bool on_demand = UseOnDemandPipelines(
-            binary_cache, instance.GetPipelineBinaryGlobalKey().keySize != 0, capture_only);
-        const bool wait_cache =
-            on_demand && EmulatorSettingsImpl::Flag("SPARTAN_SHADER_PREFETCH_WAIT", false);
-        if (wait_cache) {
-            SpartanOverlay::AddLoadingSteps(SpartanOverlay::LoadingCache);
-        }
-        rasterizer->GetPipelineCache().PrepareShaders(list, progress);
-        if (on_demand) {
-            rasterizer->GetPipelineCache().StartOnDemand();
-            // Launcher: "Read the shader cache before the game starts". A hard disk cannot serve
-            // the startup read and the game at once (#1331). Off by default: a cold read of the
-            // shipped list's files took minutes even on an NVMe drive.
-            if (wait_cache) {
-                SpartanOverlay::SetLoadingStage(SpartanOverlay::LoadingCache);
-                rasterizer->GetPipelineCache().WaitDiskPrefetch(progress);
-            }
-        }
-        if (pad) {
-            SDL_CloseGamepad(pad);
-        }
-        if (shown) {
-            SpartanOverlay::SetLoading(false, 0, 0);
-        }
-        if (on_demand) {
-            return;
-        }
-    }
-
-    // spartanport: by default the cached pipelines load while the game runs (a corner note shows the
-    // progress). Otherwise rebuilding them takes up to minutes before the first game frame:
-    // show what is happening instead of a black window.
-    const char* background_warmup = std::getenv("SPARTAN_BACKGROUND_WARMUP");
-    if ((!background_warmup || *background_warmup != '0') &&
-        rasterizer->GetPipelineCache().StartBackgroundWarmUp()) {
-        return;
-    }
-    SpartanOverlay::SetLoading(true, 0, 0);
-    PresentLoadingFrame();
-    auto last = std::chrono::steady_clock::now();
-    rasterizer->GetPipelineCache().WarmUp([&](u32 done, u32 total) {
-        const auto now = std::chrono::steady_clock::now();
-        if (now - last < std::chrono::milliseconds(250)) {
-            return;
-        }
-        last = now;
-        SpartanOverlay::SetLoading(true, done, total);
-        PresentLoadingFrame();
-    });
-    SpartanOverlay::SetLoading(false, 0, 0);
-
+    ImGui::Layer::AddLayer(Common::Singleton<Core::Devtools::Layer>::Instance());
+    ImGui::Friends::Register();
+    ImGui::ShadNetNotify::Register();
+    ImGui::InvitationPrompt::Register();
 }
 
 Presenter::~Presenter() {
+    ImGui::InvitationPrompt::Unregister();
+    ImGui::ShadNetNotify::Unregister();
+    ImGui::Friends::Unregister();
+    ImGui::Layer::RemoveLayer(Common::Singleton<Core::Devtools::Layer>::Instance());
 
     draw_scheduler.Finish();
     present_scheduler.Finish();
@@ -503,6 +525,9 @@ bool Presenter::IsVideoOutSurface(const AmdGpu::ColorBuffer& color_buffer) const
 
 void Presenter::RecreateFrame(Frame* frame, u32 width, u32 height) {
     const vk::Device device = instance.GetDevice();
+    if (frame->imgui_texture) {
+        // spartanport: no ImGui texture manager
+    }
     if (frame->image_view) {
         device.destroyImageView(frame->image_view);
     }
@@ -523,9 +548,20 @@ void Presenter::RecreateFrame(Frame* frame, u32 width, u32 height) {
                  vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eSampled,
     };
 
+    const VmaAllocationCreateInfo alloc_info = {
+        .flags = VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+        .requiredFlags = 0,
+        .preferredFlags = 0,
+        .pool = VK_NULL_HANDLE,
+        .pUserData = nullptr,
+    };
+
     VkImage unsafe_image{};
-    const VkResult result = VideoCore::CreateImageWithFallback(
-        instance.GetAllocator(), image_info, &unsafe_image, &frame->allocation);
+    VkImageCreateInfo unsafe_image_info = static_cast<VkImageCreateInfo>(image_info);
+
+    VkResult result = vmaCreateImage(instance.GetAllocator(), &unsafe_image_info, &alloc_info,
+                                     &unsafe_image, &frame->allocation, nullptr);
     if (result != VK_SUCCESS) [[unlikely]] {
         LOG_CRITICAL(Render_Vulkan, "Failed allocating texture with error {}",
                      vk::to_string(vk::Result{result}));
@@ -551,8 +587,8 @@ void Presenter::RecreateFrame(Frame* frame, u32 width, u32 height) {
     frame->width = width;
     frame->height = height;
 
+    frame->imgui_texture = {}; // spartanport: no ImGui texture manager
     frame->is_hdr = swapchain.GetHDR();
-    frame->format = format;
 }
 
 Frame* Presenter::PrepareLastFrame() {
@@ -627,61 +663,13 @@ static vk::Format GetFrameViewFormat(const Libraries::VideoOut::PixelFormat form
     return {};
 }
 
-// spartanport: raw copy of an image for SPARTAN_FRAME_DUMP_TRIGGER, written once the GPU is done.
-static void DumpRaw(const Instance& instance, Scheduler& scheduler, vk::CommandBuffer cmdbuf,
-                    vk::Image image, vk::ImageLayout layout, u32 w, u32 h, const char* name,
-                    int index) {
-    const VkBufferCreateInfo buffer_ci{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                                       .size = VkDeviceSize(w) * h * 4,
-                                       .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-    const VmaAllocationCreateInfo alloc_ci{
-        .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
-        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST};
-    VkBuffer buffer{};
-    VmaAllocation allocation{};
-    VmaAllocationInfo info{};
-    if (vmaCreateBuffer(instance.GetAllocator(), &buffer_ci, &alloc_ci, &buffer, &allocation,
-                        &info) != VK_SUCCESS) {
-        return;
-    }
-    cmdbuf.copyImageToBuffer(image, layout, buffer,
-                             vk::BufferImageCopy{.imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-                                                 .imageExtent = {w, h, 1}});
-    const char* dir = std::getenv("SPARTAN_DUMP_DIR");
-    char path[512];
-    std::snprintf(path, sizeof(path), "%s/%s_%03d_%ux%u.raw", dir && *dir ? dir : "out/dump", name,
-                  index, w, h);
-    scheduler.DeferPriorityOperation([allocator = instance.GetAllocator(), buffer, allocation, info,
-                                      size = buffer_ci.size, file = std::string{path}] {
-        vmaInvalidateAllocation(allocator, allocation, 0, VK_WHOLE_SIZE);
-        if (FILE* f = std::fopen(file.c_str(), "wb")) {
-            std::fwrite(info.pMappedData, 1, size, f);
-            std::fclose(f);
-        }
-        vmaDestroyBuffer(allocator, buffer, allocation);
-    });
-}
-
 Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& attribute,
                                VAddr cpu_address) {
-    // spartanport: SPARTAN_FRAME_DUMP_TRIGGER=<file>: when the file exists it is removed and this frame's
-    // guest display buffer and presented image are written to SPARTAN_DUMP_DIR (default out/dump)
-    // as raw 32-bit pixels (menus and movies included; the upscaler dumps scene frames only).
-    static const char* frame_dump_trigger = std::getenv("SPARTAN_FRAME_DUMP_TRIGGER");
-    static int frame_dump_index = 0;
-    const bool frame_dump = frame_dump_trigger && std::remove(frame_dump_trigger) == 0;
-    // spartanport: scaled upscaler presets: the output-size display buffer drawn by the port.
-    TemporalUpscaler::Display display{};
-    const bool upscaled = rasterizer->GetUpscaler().DisplayOverride(cpu_address, display);
-    VideoCore::ImageId image_id{};
-    if (!upscaled) {
-        auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
-        image_id = texture_cache.FindImage(desc);
-        texture_cache.UpdateImage(image_id);
-    }
+    auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
+    const auto image_id = texture_cache.FindImage(desc);
+    texture_cache.UpdateImage(image_id);
 
     Frame* frame = GetRenderFrame();
-    frame->is_generated = false;
 
     const auto frame_subresources = vk::ImageSubresourceRange{
         .aspectMask = vk::ImageAspectFlagBits::eColor,
@@ -708,198 +696,74 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &pre_barrier,
     });
-    // spartanport: frame generation, the frame between the previous one and this one.
-    const vk::Image generated_image = rasterizer->GetUpscaler().GetFrameGeneration().Generate(
-        cmdbuf, upscaled, upscaled ? display.image : vk::Image{},
-        upscaled ? display.format : vk::Format::eUndefined);
 
     VideoCore::ImageViewInfo view_info{};
     view_info.format = GetFrameViewFormat(attribute.attrib.pixel_format);
     // Exclude alpha from output frame to avoid blending with UI.
-    view_info.mapping.a = vk::ComponentSwizzle::eOne;
+    view_info.mapping.a = AmdGpu::CompSwizzle::One;
 
-    vk::ImageView image_view{};
-    vk::Extent2D image_size{};
-    if (upscaled) {
-        const auto device = instance.GetDevice();
-        image_view = Check(device.createImageView({
-            .image = display.image,
-            .viewType = vk::ImageViewType::e2D,
-            .format = view_info.format,
-            .components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-                           vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eOne},
-            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-        }));
-        draw_scheduler.DeferOperation([device, image_view] { device.destroyImageView(image_view); });
-        image_size = vk::Extent2D{display.width, display.height};
-        const vk::ImageMemoryBarrier2 to_read{
-            .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
-            .dstStageMask = vk::PipelineStageFlagBits2::eAllCommands,
-            .dstAccessMask = vk::AccessFlagBits2::eShaderRead,
-            .oldLayout = vk::ImageLayout::eGeneral,
-            .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-            .image = display.image,
-            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-        };
-        cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &to_read});
-    } else {
-        auto& image = texture_cache.GetImage(image_id);
-        if (frame_dump) {
-            runtime.Transit(&image, vk::ImageLayout::eTransferSrcOptimal,
-                            vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead);
-            runtime.FlushBarriers();
-            DumpRaw(instance, draw_scheduler, cmdbuf, image.GetImage(),
-                    vk::ImageLayout::eTransferSrcOptimal, image.info.size.width,
-                    image.info.size.height, "display", frame_dump_index);
-        }
-        image_view = *image.FindView(view_info).image_view;
-        image_size = vk::Extent2D{image.info.size.width, image.info.size.height};
-        // spartanport: AA and FSR sample the display image from compute shaders.
-        runtime.Transit(&image, vk::ImageLayout::eShaderReadOnlyOptimal,
-                        vk::PipelineStageFlagBits2::eFragmentShader |
-                            vk::PipelineStageFlagBits2::eComputeShader,
-                        vk::AccessFlagBits2::eShaderRead);
-        runtime.FlushBarriers();
-    }
+    auto& image = texture_cache.GetImage(image_id);
+    auto image_view = *image.FindView(view_info).image_view;
+    const vk::Extent2D image_size = {image.info.size.width, image.info.size.height};
     expected_ratio = static_cast<float>(image_size.width) / static_cast<float>(image_size.height);
 
-    // spartanport: FSR 1, RCAS and its strength come from the in-game menu, every frame.
-    const auto& graphics = SpartanSettings::Get();
-    fsr_settings.enable = graphics.fsr1;
-    fsr_settings.use_rcas = graphics.rcas;
-    fsr_settings.rcas_attenuation = SpartanGraphics::RcasAttenuation(graphics.rcas_strength);
-    SpartanSettings::Get().image_width = int(image_size.width);
-    SpartanSettings::Get().image_height = int(image_size.height);
-    SpartanSettings::Get().window_width = int(frame->width);
-    SpartanSettings::Get().window_height = int(frame->height);
-    SpartanSettings::Get().rcas_applied =
-        fsr_settings.use_rcas &&
-        SpartanGraphics::FsrPassRuns(fsr_settings.enable, true, int(image_size.width), int(image_size.height),
-                                  int(frame->width), int(frame->height));
-    // spartanport: anti-aliasing (FXAA, SMAA) of the game's image, before the sharpening so that
-    // the sharpening does not bring the edges back. Colour values: linear light for an sRGB view,
-    // perceptual for 10-bit sRGB values and HDR (the post pass below decodes them the same way).
-    // HDR here is the game's own PQ output; with HDR output on an SDR game the image is still SDR
-    // until the post pass. The same filter runs over the generated frame below, so real and
-    // generated frames match.
-    const bool game_pq = pp_settings.hdr == 1;
-    using VideoFormat = Libraries::VideoOut::PixelFormat;
-    const bool aa_encoded = attribute.attrib.pixel_format == VideoFormat::A2R10G10B10Srgb ||
-                            attribute.attrib.pixel_format == VideoFormat::A2R10G10B10Bt2020Pq;
-    const int aa_mode = graphics.anti_aliasing;
-    const auto apply_aa = [&](vk::ImageView input, bool is_hdr) {
-        return aa_pass.Render(cmdbuf, input, image_size, aa_mode,
-                              SpartanGraphics::AaInputIsLinear(aa_encoded, is_hdr));
-    };
-    {
-        const bool aa_runs = SpartanGraphics::AaPassRuns(aa_mode, int(image_size.width), int(image_size.height)) &&
-                             !aa_pass.Failed(aa_mode);
-        image_view = apply_aa(image_view, game_pq);
-        SpartanSettings::Get().aa_applied = aa_runs && !aa_pass.Failed(aa_mode);
-        // One line when the filter starts, stops or changes, so a log shows what ran.
-        static int logged_aa = -1;
-        const int running = aa_runs ? aa_mode : 0;
-        if (running != logged_aa) {
-            logged_aa = running;
-            std::printf("Anti-aliasing: %s%s (%ux%u)\n", SpartanGraphics::AntiAliasingNames[aa_mode],
-                        aa_runs ? " running" : " not running", image_size.width, image_size.height);
-        }
+    const u32 capture_game_only_count = VideoCore::ConsumeGameOnlyScreenshotRequests();
+    std::optional<ScreenshotReadback> pending_screenshot;
+
+    // Capture the guest output before any host-side scaling (FSR/PP) is applied.
+    if (capture_game_only_count > 0) {
+        const bool hdr_encoded =
+            attribute.attrib.pixel_format == Libraries::VideoOut::PixelFormat::A2R10G10B10Bt2020Pq;
+        auto& readback = pending_screenshot.emplace(
+            instance, ScreenshotKind::GameOnly,
+            BuildScreenshotPaths(ScreenshotKind::GameOnly, capture_game_only_count),
+            image_size.width, image_size.height, view_info.format, hdr_encoded);
+        const vk::BufferImageCopy copy_region = {
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource{
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {readback.width, readback.height, 1},
+        };
+        runtime.DownloadImage(&image, &readback.buffer, std::span{&copy_region, 1});
     }
+
+    // Continue with host-side passes that draw the displayed (scaled) frame.
+
+    runtime.Transit(&image, vk::ImageLayout::eShaderReadOnlyOptimal,
+                    vk::PipelineStageFlagBits2::eFragmentShader, vk::AccessFlagBits2::eShaderRead);
+    runtime.FlushBarriers();
+
     image_view = fsr_pass.Render(cmdbuf, image_view, image_size, {frame->width, frame->height},
-                                 fsr_settings, game_pq);
+                                 fsr_settings, frame->is_hdr);
 
     // Vulkan has no sRGB variant of the 10-bit format, so an A2R10G10B10Srgb buffer reaches
     // the post process pass still sRGB encoded and has to be decoded there instead.
     pp_settings.srgb_input =
         attribute.attrib.pixel_format == Libraries::VideoOut::PixelFormat::A2R10G10B10Srgb;
-    // spartanport: black bars around a cutscene when the render resolution is not 16:9 (movie_bars.h).
-    pp_settings.picture = MovieBars::Cutscenes().Bars(image_size.width, image_size.height,
-                                                      MovieBars::NowMs());
-    // spartanport: the player's brightness, contrast and gamma, read once for the real and the
-    // generated frame. Neutral values skip the adjustment in the shader.
-    {
-        const int brightness = graphics.picture_brightness, contrast = graphics.picture_contrast;
-        const int gamma = graphics.picture_gamma;
-        pp_settings.picture_power = SpartanGraphics::PicturePower(gamma);
-        pp_settings.picture_contrast = SpartanGraphics::PictureContrast(contrast);
-        pp_settings.picture_brightness = SpartanGraphics::PictureBrightness(brightness);
-        pp_settings.picture_adjust = !SpartanGraphics::PictureNeutral(brightness, contrast, gamma);
-    }
-    // spartanport: HDR output's paper white and peak (live), and whether the menu's HDR rows act.
-    pp_settings.hdr_paper_white = float(graphics.hdr_paper_white);
-    pp_settings.hdr_peak = float(graphics.hdr_peak);
-    SpartanSettings::Get().hdr_active = pp_settings.hdr == 2;
-    frame->sdr_white_nits = pp_settings.hdr == 2 ? pp_settings.hdr_paper_white : 0.0f;
-    frame->sdr_peak_nits = pp_settings.hdr == 2 ? pp_settings.hdr_peak : 0.0f;
     pp_pass.Render(cmdbuf, image_view, image_size, *frame, pp_settings);
-    if (generated_image) {
-        // The same passes over the generated frame, into a frame of its own.
-        Frame* generated = GetRenderFrame();
-        const auto generated_barrier = vk::ImageMemoryBarrier2{
-            .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentRead,
-            .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
-            .oldLayout = vk::ImageLayout::eUndefined,
-            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .image = generated->image,
-            .subresourceRange{frame_subresources},
-        };
-        cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1,
-                                 .pImageMemoryBarriers = &generated_barrier});
-        const vk::ImageView generated_view = fsr_pass.Render(
-            cmdbuf,
-            apply_aa(rasterizer->GetUpscaler().GetFrameGeneration().GeneratedView(view_info.format),
-                     game_pq),
-            image_size, {generated->width, generated->height}, fsr_settings, game_pq);
-        generated->sdr_white_nits = frame->sdr_white_nits;
-        generated->sdr_peak_nits = frame->sdr_peak_nits;
-        pp_pass.Render(cmdbuf, generated_view, image_size, *generated, pp_settings);
-        generated->is_generated = true;
-        frame->generated = generated;
-    }
-    if (frame_dump) {
-        // The presented image as the swapchain blit reads it (General after the pass).
-        const vk::MemoryBarrier2 done{.srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
-                                      .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
-                                      .dstStageMask = vk::PipelineStageFlagBits2::eTransfer,
-                                      .dstAccessMask = vk::AccessFlagBits2::eTransferRead};
-        cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &done});
-        DumpRaw(instance, draw_scheduler, cmdbuf, frame->image, vk::ImageLayout::eGeneral,
-                frame->width, frame->height, "output", frame_dump_index);
-        ++frame_dump_index;
+
+    DebugState.game_resolution = {image_size.width, image_size.height};
+    DebugState.output_resolution = {frame->width, frame->height};
+
+    if (pending_screenshot) {
+        draw_scheduler.DeferPriorityOperation(
+            [deferred_screenshot = std::move(pending_screenshot)]() {
+                SavePendingScreenshot(deferred_screenshot.value());
+            });
     }
 
     // Flush frame creation commands.
     frame->ready_semaphore = draw_scheduler.GetWorkSemaphore()->Handle();
     frame->ready_tick = draw_scheduler.CurrentTick();
-    if (frame->generated) {
-        frame->generated->ready_semaphore = frame->ready_semaphore;
-        frame->generated->ready_tick = frame->ready_tick;
-    }
     SubmitInfo info{};
     draw_scheduler.Flush(info);
-
-    // spartanport: the GPU command thread runs at most SPARTAN_FRAMES_AHEAD (default 1) guest frames
-    // ahead of the GPU: it waits here for the frame that many flips back. When the GPU is the
-    // bottleneck it finishes frames at an even rate; without this bound the command thread ran
-    // ahead and then blocked wherever a resource ran out, so flips (and the guest's frame
-    // timing) came in bursts: 12.5/25 ms alternation at 80 FPS. 0 turns it off.
-    // The in-game menu changes it live (SpartanSettings::frames_queued; SPARTAN_FRAMES_AHEAD at start).
-    const u32 frames_ahead = u32(std::max(0, SpartanSettings::Get().frames_queued.load()));
-    if (!frames_ahead) {
-        recent_frame_ticks.clear();
-    } else {
-        recent_frame_ticks.push_back(frame->ready_tick);
-        while (recent_frame_ticks.size() > frames_ahead) {
-            const u64 tick = recent_frame_ticks.front();
-            recent_frame_ticks.pop_front();
-            if (recent_frame_ticks.size() == frames_ahead) {
-                draw_scheduler.Wait(tick);
-            }
-        }
-    }
     return frame;
 }
 
@@ -976,99 +840,7 @@ Frame* Presenter::PrepareBlankFrame(bool present_thread) {
     return frame;
 }
 
-void Presenter::PresentLoadingFrame() {
-    if (window.IsMinimized() || window.GetWidth() <= 0 || window.GetHeight() <= 0) {
-        return;
-    }
-    swapchain.UpdateVsync();
-    if (window.GetWidth() != swapchain.GetWidth() || window.GetHeight() != swapchain.GetHeight()) {
-        // spartanport: recreation waits for every queue; no submission may overlap it.
-        std::scoped_lock submit_lock{Scheduler::submit_mutex};
-        swapchain.Recreate(window.GetWidth(), window.GetHeight());
-    }
-    if (!swapchain.AcquireNextImage()) {
-        if (!window.IsMinimized() && window.GetWidth() > 0 && window.GetHeight() > 0) {
-            // spartanport: acquire recovery also destroys the old swapchain and waits for idle.
-            std::scoped_lock submit_lock{Scheduler::submit_mutex};
-            swapchain.Recreate(window.GetWidth(), window.GetHeight());
-        }
-        if (!swapchain.AcquireNextImage()) {
-            return;
-        }
-    }
-    const vk::Image image = swapchain.Image();
-    const vk::Extent2D extent = swapchain.GetExtent();
-    const auto cmdbuf = present_scheduler.CommandBuffer();
-    const vk::ImageSubresourceRange range{
-        .aspectMask = vk::ImageAspectFlagBits::eColor,
-        .levelCount = 1,
-        .layerCount = VK_REMAINING_ARRAY_LAYERS,
-    };
-    const auto barrier = [&](vk::ImageLayout from, vk::ImageLayout to, vk::AccessFlags src,
-                             vk::AccessFlags dst) {
-        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-                               vk::PipelineStageFlagBits::eAllCommands, {}, {}, {},
-                               vk::ImageMemoryBarrier{
-                                   .srcAccessMask = src,
-                                   .dstAccessMask = dst,
-                                   .oldLayout = from,
-                                   .newLayout = to,
-                                   .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                   .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                   .image = image,
-                                   .subresourceRange = range,
-                               });
-    };
-    barrier(vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, {},
-            vk::AccessFlagBits::eTransferWrite);
-    cmdbuf.clearColorImage(image, vk::ImageLayout::eTransferDstOptimal,
-                           vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}},
-                           range);
-    barrier(vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eColorAttachmentWrite);
-    SpartanOverlay::Render(cmdbuf, swapchain.ImageView(), extent);
-    barrier(vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
-            vk::AccessFlagBits::eColorAttachmentWrite, {});
-    SubmitInfo info{};
-    info.AddWait(swapchain.GetImageAcquiredSemaphore());
-    info.AddSignal(swapchain.GetPresentReadySemaphore());
-    present_scheduler.Flush(info);
-    {
-        std::scoped_lock submit_lock{Scheduler::submit_mutex};
-        if (!swapchain.Present() && !window.IsMinimized() && window.GetWidth() > 0 &&
-            window.GetHeight() > 0) {
-            swapchain.Recreate(window.GetWidth(), window.GetHeight());
-        }
-    }
-    // A few frames a second during start-up: waiting keeps semaphores and the swapchain simple.
-    present_scheduler.Finish();
-}
-
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame) {
-    using Clock = std::chrono::steady_clock;
-    const auto real_deadline = !is_reusing_frame && is_game_frame
-        ? frame_pacing.RealDeadline(Clock::now()) : Clock::time_point{};
-    struct Profile {
-        Clock::time_point window = Clock::now(), last_present{};
-        double pacing_ms = 0, acquire_ms = 0, submit_ms = 0, present_ms = 0;
-        double real_gap_ms = 0, generated_gap_ms = 0;
-        u64 real = 0, generated = 0, real_gaps = 0, generated_gaps = 0;
-    };
-    Profile* profile = nullptr;
-    if (GpuProfiler::Get() && !is_reusing_frame) {
-        static thread_local Profile totals;
-        profile = &totals;
-    }
-    // spartanport: frame generation: the generated frame first, the real one halfway to the next.
-    if (Frame* generated = std::exchange(frame->generated, nullptr)) {
-        Present(generated, false, false);
-        const auto sleep_start = profile ? Clock::now() : Clock::time_point{};
-        std::this_thread::sleep_until(real_deadline);
-        if (profile) {
-            profile->pacing_ms += std::chrono::duration<double, std::milli>(
-                Clock::now() - sleep_start).count();
-        }
-    }
     // Free the frame for reuse
     const auto free_frame = [&] {
         if (!is_reusing_frame) {
@@ -1079,28 +851,13 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         }
     };
 
-    // spartanport: a minimized window has no pixels on Windows (0x0) or is hidden/occluded; keep the swapchain
-    // and skip presenting until the window is restored.
-    if (window.IsMinimized() || window.GetWidth() <= 0 || window.GetHeight() <= 0) {
-        free_frame();
-        return;
-    }
-
     // Recreate the swapchain if the window was resized.
-    swapchain.UpdateVsync();
     if (window.GetWidth() != swapchain.GetWidth() || window.GetHeight() != swapchain.GetHeight()) {
-        // spartanport: recreation waits for every queue; no submission may overlap it.
-        std::scoped_lock submit_lock{Scheduler::submit_mutex};
         swapchain.Recreate(window.GetWidth(), window.GetHeight());
     }
 
-    const auto acquire_start = profile ? Clock::now() : Clock::time_point{};
     if (!swapchain.AcquireNextImage()) {
-        if (!window.IsMinimized() && window.GetWidth() > 0 && window.GetHeight() > 0) {
-            // spartanport: acquire recovery also destroys the old swapchain and waits for idle.
-            std::scoped_lock submit_lock{Scheduler::submit_mutex};
-            swapchain.Recreate(window.GetWidth(), window.GetHeight());
-        }
+        swapchain.Recreate(window.GetWidth(), window.GetHeight());
         if (!swapchain.AcquireNextImage()) {
             // User resizes the window too fast and GPU can't keep up. Skip this frame.
             LOG_WARNING(Render_Vulkan, "Skipping frame!");
@@ -1109,10 +866,6 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         }
     }
 
-    if (profile) {
-        profile->acquire_ms += std::chrono::duration<double, std::milli>(
-            Clock::now() - acquire_start).count();
-    }
     // Reset fence for queue submission. Do it here instead of GetRenderFrame() because we may
     // skip frame because of slow swapchain recreation. If a frame skip occurs, we skip signal
     // the frame's present fence and future GetRenderFrame() call will hang waiting for this frame.
@@ -1120,10 +873,15 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     ASSERT_MSG(reset_result == vk::Result::eSuccess,
                "Unexpected error resetting present done fence: {}", vk::to_string(reset_result));
 
-    // spartanport: the game frame is blitted (letterboxed) straight into the swapchain image.
+    const ImGuiID dockId = 0; // spartanport: emulator debug UI disabled
+
     const vk::Image swapchain_image = swapchain.Image();
+    const vk::ImageView swapchain_image_view = swapchain.ImageView();
+
     auto& scheduler = present_scheduler;
     const auto cmdbuf = scheduler.CommandBuffer();
+    const u32 capture_with_overlays_count = VideoCore::ConsumeWithOverlaysScreenshotRequests();
+    std::optional<ScreenshotReadback> pending_screenshot;
 
     if (EmulatorSettings.IsVkHostMarkersEnabled()) {
         cmdbuf.beginDebugUtilsLabelEXT(vk::DebugUtilsLabelEXT{
@@ -1132,100 +890,169 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
 
     {
+        auto* profiler_ctx = instance.GetProfilerContext();
+        TracyVkNamedZoneC(profiler_ctx, renderer_gpu_zone, cmdbuf, "Host frame",
+                          MarkersPalette::GpuMarkerColor, profiler_ctx != nullptr);
+
         const vk::Extent2D extent = swapchain.GetExtent();
-        SetExpectedGameSize(s32(extent.width), s32(extent.height));
-        const vk::ImageSubresourceRange color_range{
-            .aspectMask = vk::ImageAspectFlagBits::eColor,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = VK_REMAINING_ARRAY_LAYERS,
-        };
         const std::array pre_barriers{
             vk::ImageMemoryBarrier{
                 .srcAccessMask = vk::AccessFlagBits::eNone,
-                .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
+                .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
                 .oldLayout = vk::ImageLayout::eUndefined,
-                .newLayout = vk::ImageLayout::eTransferDstOptimal,
+                .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .image = swapchain_image,
-                .subresourceRange = color_range,
+                .subresourceRange{
+                    .aspectMask = vk::ImageAspectFlagBits::eColor,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = VK_REMAINING_ARRAY_LAYERS,
+                },
             },
             vk::ImageMemoryBarrier{
                 .srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
-                .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+                .dstAccessMask = vk::AccessFlagBits::eShaderRead,
                 .oldLayout = vk::ImageLayout::eGeneral,
+                .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = frame->image,
+                .subresourceRange{
+                    .aspectMask = vk::ImageAspectFlagBits::eColor,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = VK_REMAINING_ARRAY_LAYERS,
+                },
+            },
+        };
+
+        bool swapchain_copied_for_screenshot = false;
+
+        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                               vk::PipelineStageFlagBits::eColorAttachmentOutput |
+                                   vk::PipelineStageFlagBits::eFragmentShader,
+                               {}, {}, {}, pre_barriers);
+
+        if (false) { // Draw the game (spartanport: old ImGui crashes)
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+            (void)dockId; // spartanport: docking not available in bundled ImGui
+            if (ImGui::Begin("Display##game_display", nullptr, ImGuiWindowFlags_NoNav)) {
+                auto game_texture = frame->imgui_texture;
+                auto game_width = frame->width;
+                auto game_height = frame->height;
+
+                if (Libraries::SystemService::IsSplashVisible()) { // draw splash
+                    if (!splash_img.has_value()) {
+                        splash_img.emplace();
+                        const auto& splash_data = Common::ElfInfo::Instance().GetSplashData();
+                        if (!splash_data.empty()) {
+                            // spartanport: splash image omitted
+                        }
+                    }
+                    if (auto& splash_image = this->splash_img.value()) {
+                        auto [im_id, width, height] = splash_image.GetTexture();
+                        game_texture = im_id;
+                        game_width = width;
+                        game_height = height;
+                    }
+                }
+
+                ImVec2 contentArea = ImGui::GetContentRegionAvail();
+                SetExpectedGameSize((s32)contentArea.x, (s32)contentArea.y);
+
+                const auto imgRect =
+                    FitImage(game_width, game_height, (s32)contentArea.x, (s32)contentArea.y);
+                ImVec2 offset{
+                    static_cast<float>(imgRect.offset.x),
+                    static_cast<float>(imgRect.offset.y),
+                };
+                ImVec2 size{
+                    static_cast<float>(imgRect.extent.width),
+                    static_cast<float>(imgRect.extent.height),
+                };
+
+                ImGui::SetCursorPos(ImVec2(ImGui::GetCursorStartPos().x + offset.x, ImGui::GetCursorStartPos().y + offset.y));
+                ImGui::Image(game_texture, size);
+
+                if (EmulatorSettings.IsNullGPU()) {
+                    Core::Devtools::Layer::DrawNullGpuNotice();
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleVar(3);
+            ImGui::PopStyleColor();
+        }
+        // spartanport: emulator debug UI omitted; game image already presented.
+
+        if (capture_with_overlays_count > 0) {
+            auto& readback = pending_screenshot.emplace(
+                instance, ScreenshotKind::WithOverlays,
+                BuildScreenshotPaths(ScreenshotKind::WithOverlays, capture_with_overlays_count),
+                extent.width, extent.height,
+                swapchain.GetHDR() ? vk::Format::eA2B10G10R10UnormPack32
+                                   : swapchain.GetSurfaceFormat().format,
+                swapchain.GetHDR());
+
+            const vk::ImageMemoryBarrier to_transfer{
+                .srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
+                .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+                .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
                 .newLayout = vk::ImageLayout::eTransferSrcOptimal,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = frame->image,
-                .subresourceRange = color_range,
+                .image = swapchain_image,
+                .subresourceRange{
+                    .aspectMask = vk::ImageAspectFlagBits::eColor,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = VK_REMAINING_ARRAY_LAYERS,
+                },
+            };
+
+            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                   vk::PipelineStageFlagBits::eTransfer,
+                                   vk::DependencyFlagBits::eByRegion, {}, {}, to_transfer);
+            CopyImageToReadback(cmdbuf, swapchain_image, vk::ImageLayout::eTransferSrcOptimal,
+                                readback);
+            swapchain_copied_for_screenshot = true;
+        }
+
+        const vk::AccessFlags post_src_access_mask =
+            swapchain_copied_for_screenshot ? vk::AccessFlagBits::eTransferRead
+                                            : vk::AccessFlagBits::eColorAttachmentWrite;
+        const vk::ImageLayout post_old_layout = swapchain_copied_for_screenshot
+                                                    ? vk::ImageLayout::eTransferSrcOptimal
+                                                    : vk::ImageLayout::eColorAttachmentOptimal;
+        const vk::ImageMemoryBarrier post_barrier{
+            .srcAccessMask = post_src_access_mask,
+            .dstAccessMask = vk::AccessFlagBits::eNone,
+            .oldLayout = post_old_layout,
+            .newLayout = vk::ImageLayout::ePresentSrcKHR,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = swapchain_image,
+            .subresourceRange{
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = VK_REMAINING_ARRAY_LAYERS,
             },
         };
         cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands,
-                               vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlagBits::eByRegion,
-                               {}, {}, pre_barriers);
-        const vk::ClearColorValue black{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
-        cmdbuf.clearColorImage(swapchain_image, vk::ImageLayout::eTransferDstOptimal, black, color_range);
-        const vk::MemoryBarrier clear_done{
-            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-            .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
-        };
-        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer,
-                               vk::DependencyFlagBits::eByRegion, clear_done, {}, {});
-        cmdbuf.blitImage(frame->image, vk::ImageLayout::eTransferSrcOptimal, swapchain_image,
-                         vk::ImageLayout::eTransferDstOptimal,
-                         MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),
-                         vk::Filter::eLinear);
-        if (VideoCore::ConsumeGameOnlyScreenshotRequests() != 0) {
-            CaptureScreenshot(instance, scheduler, cmdbuf, *frame);
-        }
-        // spartanport: the settings menu / FPS counter over the frame, at display resolution.
-        const bool overlay = SpartanOverlay::Visible();
-        const std::array post_barriers{
-            vk::ImageMemoryBarrier{
-                .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-                .dstAccessMask = overlay ? vk::AccessFlagBits::eColorAttachmentRead |
-                                               vk::AccessFlagBits::eColorAttachmentWrite
-                                         : vk::AccessFlagBits::eNone,
-                .oldLayout = vk::ImageLayout::eTransferDstOptimal,
-                .newLayout = overlay ? vk::ImageLayout::eColorAttachmentOptimal
-                                     : vk::ImageLayout::ePresentSrcKHR,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = swapchain_image,
-                .subresourceRange = color_range,
-            },
-            vk::ImageMemoryBarrier{
-                .srcAccessMask = vk::AccessFlagBits::eTransferRead,
-                .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
-                .oldLayout = vk::ImageLayout::eTransferSrcOptimal,
-                .newLayout = vk::ImageLayout::eGeneral,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = frame->image,
-                .subresourceRange = color_range,
-            },
-        };
-        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
                                vk::PipelineStageFlagBits::eAllCommands,
-                               vk::DependencyFlagBits::eByRegion, {}, {}, post_barriers);
-        if (overlay) {
-            SpartanOverlay::Render(cmdbuf, swapchain.ImageView(), extent);
-            const vk::ImageMemoryBarrier to_present{
-                .srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
-                .dstAccessMask = vk::AccessFlagBits::eNone,
-                .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
-                .newLayout = vk::ImageLayout::ePresentSrcKHR,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = swapchain_image,
-                .subresourceRange = color_range,
-            };
-            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                                   vk::PipelineStageFlagBits::eBottomOfPipe,
-                                   vk::DependencyFlagBits::eByRegion, {}, {}, to_present);
+                               vk::DependencyFlagBits::eByRegion, {}, {}, post_barrier);
+
+        if (profiler_ctx) {
+            TracyVkCollect(profiler_ctx, cmdbuf);
         }
     }
     if (EmulatorSettings.IsVkHostMarkersEnabled()) {
@@ -1233,63 +1060,27 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
 
     // Flush vulkan commands.
+    if (pending_screenshot) {
+        scheduler.DeferPriorityOperation([deferred_screenshot = std::move(pending_screenshot)]() {
+            SavePendingScreenshot(deferred_screenshot.value());
+        });
+    }
 
     SubmitInfo info{};
     info.AddWait(swapchain.GetImageAcquiredSemaphore());
     info.AddWait(frame->ready_semaphore, frame->ready_tick);
     info.AddSignal(swapchain.GetPresentReadySemaphore());
     info.AddSignal(frame->present_done);
-    const auto submit_start = profile ? Clock::now() : Clock::time_point{};
     scheduler.Flush(info);
-    const auto present_start = profile ? Clock::now() : Clock::time_point{};
-    if (profile) {
-        profile->submit_ms += std::chrono::duration<double, std::milli>(
-            present_start - submit_start).count();
-    }
 
     // Present to swapchain.
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};
-        if (!swapchain.Present() && !window.IsMinimized() && window.GetWidth() > 0 &&
-            window.GetHeight() > 0) {
+        if (!swapchain.Present()) {
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
         }
     }
 
-    if (profile) {
-        const auto now = Clock::now();
-        profile->present_ms += std::chrono::duration<double, std::milli>(now - present_start).count();
-        const bool has_gap = profile->last_present != Clock::time_point{};
-        const double gap = has_gap ? std::chrono::duration<double, std::milli>(
-            now - profile->last_present).count() : 0.0;
-        profile->last_present = now;
-        if (is_game_frame) {
-            ++profile->real;
-            profile->real_gap_ms += gap;
-            profile->real_gaps += has_gap;
-        } else {
-            ++profile->generated;
-            profile->generated_gap_ms += gap;
-            profile->generated_gaps += has_gap;
-        }
-        const double seconds = std::chrono::duration<double>(now - profile->window).count();
-        if (seconds >= 5.0) {
-            const double calls = double(profile->real + profile->generated);
-            std::printf("FG CPU profile: mode=%d real_calls/s=%.1f generated_calls/s=%.1f "
-                        "real=%llu generated=%llu pacing=%.3f ms/real "
-                        "acquire=%.3f submit=%.3f present=%.3f ms/call "
-                        "gap_to_real=%.3f gap_to_generated=%.3f ms\n",
-                        SpartanSettings::Get().frame_generation.load(), profile->real / seconds,
-                        profile->generated / seconds, static_cast<unsigned long long>(profile->real),
-                        static_cast<unsigned long long>(profile->generated),
-                        profile->pacing_ms / double(std::max<u64>(1, profile->real)),
-                        profile->acquire_ms / calls, profile->submit_ms / calls,
-                        profile->present_ms / calls,
-                        profile->real_gap_ms / double(std::max<u64>(1, profile->real_gaps)),
-                        profile->generated_gap_ms / double(std::max<u64>(1, profile->generated_gaps)));
-            *profile = {};
-        }
-    }
     free_frame();
     if (!is_reusing_frame && is_game_frame) {
         DebugState.IncFlipFrameNum();
@@ -1297,9 +1088,6 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
 }
 
 Frame* Presenter::GetRenderFrame() {
-    using Clock = std::chrono::steady_clock;
-    const bool profile = GpuProfiler::Get() != nullptr;
-    const auto wait_start = profile ? Clock::now() : Clock::time_point{};
     // Wait for free presentation frames
     Frame* frame;
     {
@@ -1312,7 +1100,6 @@ Frame* Presenter::GetRenderFrame() {
         free_queue.pop();
     }
 
-    const auto queue_ready = profile ? Clock::now() : Clock::time_point{};
     const vk::Device device = instance.GetDevice();
     vk::Result result{};
 
@@ -1331,24 +1118,6 @@ Frame* Presenter::GetRenderFrame() {
         }
     }
 
-    if (profile) {
-        const auto now = Clock::now();
-        static thread_local auto window = wait_start;
-        static thread_local double queue_ms = 0, fence_ms = 0;
-        static thread_local u64 calls = 0;
-        queue_ms += std::chrono::duration<double, std::milli>(queue_ready - wait_start).count();
-        fence_ms += std::chrono::duration<double, std::milli>(now - queue_ready).count();
-        ++calls;
-        const double seconds = std::chrono::duration<double>(now - window).count();
-        if (seconds >= 5.0) {
-            std::printf("FG frame wait profile: mode=%d calls/s=%.1f queue=%.3f fence=%.3f ms/call\n",
-                        SpartanSettings::Get().frame_generation.load(), calls / seconds,
-                        queue_ms / double(calls), fence_ms / double(calls));
-            window = now;
-            queue_ms = fence_ms = 0;
-            calls = 0;
-        }
-    }
     if (frame->width != expected_frame_width || frame->height != expected_frame_height ||
         frame->is_hdr != swapchain.GetHDR()) {
         RecreateFrame(frame, expected_frame_width, expected_frame_height);
@@ -1358,9 +1127,6 @@ Frame* Presenter::GetRenderFrame() {
 }
 
 void Presenter::SetExpectedGameSize(s32 width, s32 height) {
-    if (width <= 0 || height <= 0) {
-        return; // no surface (minimized window): keep the last frame size
-    }
     const float ratio = (float)width / (float)height;
 
     expected_frame_height = height;

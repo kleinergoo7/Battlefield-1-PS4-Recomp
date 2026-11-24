@@ -3,8 +3,6 @@
 
 #pragma once
 
-// spartanport: clamp view ranges with standard min/max helpers.
-#include <algorithm>
 #include "common/slot_vector.h"
 #include "common/types.h"
 
@@ -12,6 +10,7 @@ namespace VideoCore {
 
 using ImageId = Common::SlotId;
 using ImageViewId = Common::SlotId;
+using SamplerId = Common::SlotId;
 
 struct Offset2D {
     s32 x;
@@ -55,19 +54,20 @@ struct SubresourceLayers {
 };
 
 struct SubresourceBase {
-    u32 level = 0;
-    u32 layer = 0;
+    u16 level = 0;
+    u16 layer = 0;
 
     auto operator<=>(const SubresourceBase&) const = default;
 };
 
 struct SubresourceExtent {
-    u32 levels = 1;
-    u32 layers = 1;
+    u16 levels = 1;
+    u16 layers = 1;
 
     auto operator<=>(const SubresourceExtent&) const = default;
 
-    // spartanport: check both dimensions so extra mips cannot hide missing layers.
+    // True if an image with this extent can serve every subresource of `other`. The defaulted
+    // operators compare levels first and layers only on a tie, which cannot answer this.
     bool Contains(const SubresourceExtent& other) const noexcept {
         return levels >= other.levels && layers >= other.layers;
     }
@@ -77,22 +77,7 @@ struct SubresourceRange {
     SubresourceBase base;
     SubresourceExtent extent;
 
-    auto operator<=>(const SubresourceRange&) const = default;
-
-    // spartanport: bound views to the resolved image, keeping counts positive without overflow.
-    bool ClampTo(const SubresourceExtent& resources) noexcept {
-        const u32 levels = std::max(resources.levels, 1u);
-        const u32 layers = std::max(resources.layers, 1u);
-        if (base.level < levels && base.layer < layers && extent.levels > 0 && extent.layers > 0 &&
-            extent.levels <= levels - base.level && extent.layers <= layers - base.layer) {
-            return false;
-        }
-        base.level = std::min(base.level, levels - 1);
-        base.layer = std::min(base.layer, layers - 1);
-        extent.levels = std::clamp(extent.levels, 1u, levels - base.level);
-        extent.layers = std::clamp(extent.layers, 1u, layers - base.layer);
-        return true;
-    }
+    bool operator==(const SubresourceRange&) const = default;
 };
 
 struct ImageCopy {

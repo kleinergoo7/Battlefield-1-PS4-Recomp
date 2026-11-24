@@ -65,6 +65,14 @@ public:
     bool IsVkGuestMarkersEnabled() { static const auto value = Flag("SPARTAN_VK_MARKERS", false); return value; }
     bool IsVkHostMarkersEnabled() { static const auto value = Flag("SPARTAN_VK_MARKERS", false); return value; }
     bool IsVkValidationCoreEnabled() { return true; }
+    // spartanport: shadPS4 upstream video_core settings used by d75a2e68.
+    u32 GetGpuClockFrameUs() { static const auto v = u32(Number("SPARTAN_GPU_CLOCK_FRAME_US", 0)); return v; }
+    bool IsFsrEnabled() { return false; }
+    bool IsRcasEnabled() { return false; }
+    float GetRcasAttenuation() { static const auto v = float(Number("SPARTAN_RCAS_ATTENUATION", 100)) / 100.0f; return v; }
+    bool IsInlineFetchShader() { static const auto v = Flag("SPARTAN_INLINE_FETCH_SHADER", false); return v; }
+    u32 GetSubmitDrawInterval() { static const auto v = u32(Number("SPARTAN_SUBMIT_DRAW_INTERVAL", 0)); return v; }
+    bool IsFastShaderMath() { static const auto v = Flag("SPARTAN_FAST_SHADER_MATH", false); return v; }
     bool IsVkValidationEnabled() { static const auto value = Flag("SPARTAN_VK_VALIDATION", false); return value; }
     bool IsVkValidationGpuEnabled() { return false; }
     bool IsVkValidationSyncEnabled() { static const auto value = Flag("SPARTAN_VK_VALIDATION_SYNC", false); return value; }

@@ -14,19 +14,17 @@
 #include <miniz.h>
 
 #include <condition_variable>
-// spartanport: callbacks report write exceptions instead of hiding them in unused futures.
-#include <exception>
 #include <functional>
+#include <future>
 #include <mutex>
 #include <queue>
 
 namespace {
 
-// spartanport: one mutex guards queued and active writes, avoiding a racing request count.
+std::mutex submit_mutex{};
+u32 num_requests{};
 std::condition_variable_any request_cv{};
-std::condition_variable idle_cv{};
-std::queue<std::function<void()>> req_queue{};
-bool io_busy{};
+std::queue<std::packaged_task<void()>> req_queue{};
 std::mutex m_request{};
 
 mz_zip_archive zip_ar{};
@@ -39,25 +37,33 @@ namespace Storage {
 void ProcessIO(const std::stop_token& stoken) {
     Common::SetCurrentThreadName("shadPS4:PipelineCacheIO");
 
-    // spartanport: a stop drains accepted writes; idle includes the callback currently running.
-    for (;;) {
-        std::function<void()> request;
+    while (!stoken.stop_requested()) {
         {
-            std::unique_lock lk{m_request};
-            io_busy = false;
-            idle_cv.notify_all();
-            Common::CondvarWait(request_cv, lk, stoken, [&] { return !req_queue.empty(); });
-            if (req_queue.empty()) {
-                return;
-            }
-            request = std::move(req_queue.front());
-            req_queue.pop();
-            io_busy = true;
+            std::unique_lock lk{submit_mutex};
+            Common::CondvarWait(request_cv, lk, stoken, [&] { return num_requests; });
         }
-        try {
-            request();
-        } catch (const std::exception& e) {
-            LOG_ERROR(Render, "Cache write failed: {}", e.what());
+
+        if (stoken.stop_requested()) {
+            break;
+        }
+
+        while (num_requests) {
+            std::packaged_task<void()> request{};
+            {
+                std::scoped_lock lock{m_request};
+                if (req_queue.empty()) {
+                    continue;
+                }
+                request = std::move(req_queue.front());
+                req_queue.pop();
+            }
+
+            if (request.valid()) {
+                request();
+                request.get_future().wait();
+            }
+
+            --num_requests;
         }
     }
 }
@@ -105,13 +111,8 @@ void DataBase::Open() {
         }
     } else {
         cache_path = GetUserPath(PathType::CacheDir) / game_info.GameSerial();
-        // spartanport: disable caching on directory errors so startup does not throw.
-        std::error_code error;
-        std::filesystem::create_directories(cache_path, error);
-        if (error) {
-            LOG_WARNING(Render, "Shader cache unavailable at {}: {}", cache_path.string(),
-                        error.message());
-            return;
+        if (!std::filesystem::exists(cache_path)) {
+            std::filesystem::create_directories(cache_path);
         }
     }
 
@@ -136,20 +137,10 @@ void DataBase::Close() {
     LOG_INFO(Render, "Cache dumped");
 }
 
-// spartanport: bound exit waits without joining a worker that may be blocked on disk IO.
-bool DataBase::Flush(std::chrono::milliseconds timeout) {
-    if (!IsOpened()) {
-        return true;
-    }
-    std::unique_lock lk{m_request};
-    return idle_cv.wait_for(lk, timeout, [] { return req_queue.empty() && !io_busy; });
-}
-
 template <typename T>
 bool WriteVector(const BlobType type, std::filesystem::path&& path_, std::vector<T>&& v) {
     {
-        // spartanport: move the payload into the queue to avoid copying it on the GPU thread.
-        std::function<void()> request = [type, path_ = std::move(path_), v = std::move(v)]() {
+        auto request = std::packaged_task<void()>{[=]() {
             auto path{path_};
             path.replace_extension(GetBlobFileExtension(type));
             if (EmulatorSettings.IsPipelineCacheArchived()) {
@@ -160,27 +151,17 @@ bool WriteVector(const BlobType type, std::filesystem::path&& path_, std::vector
                     LOG_ERROR(Render, "Failed to add {} to the archive", path.string().c_str());
                 }
             } else {
-                // spartanport: write beside and rename into place, so a game that ends during the
-                // write (an exit flush may time out) never leaves a truncated blob that
-                // the next start would load.
                 using namespace Common::FS;
-                auto temp{path};
-                temp += ".tmp";
-                {
-                    const auto file = IOFile{temp, FileAccessMode::Create};
-                    if (!file.IsOpen() || file.Write(v) != v.size()) {
-                        return;
-                    }
-                }
-                std::error_code error;
-                std::filesystem::rename(temp, path, error);
+                const auto file = IOFile{path, FileAccessMode::Create};
+                file.Write(v);
             }
-        };
+        }};
         std::scoped_lock lock{m_request};
         req_queue.emplace(std::move(request));
     }
 
-    // spartanport: queue insertion and the worker predicate now share m_request.
+    std::scoped_lock lk{submit_mutex};
+    ++num_requests;
     request_cv.notify_one();
     return true;
 }
@@ -201,21 +182,9 @@ void LoadVector(BlobType type, std::filesystem::path& path, std::vector<T>& v) {
         v.resize(stat.m_uncomp_size / sizeof(T));
         mz_zip_reader_extract_to_mem(&zip_ar, index, v.data(), stat.m_uncomp_size, 0);
     } else {
-        // spartanport: clear failed loads so partial words and short reads remain cache misses.
-        v.clear();
         const auto file = IOFile{path, FileAccessMode::Read};
-        if (!file.IsOpen()) {
-            return;
-        }
-        const auto bytes = file.GetSize();
-        if (bytes % sizeof(T) != 0) {
-            return;
-        }
-        v.resize(bytes / sizeof(T));
-        if (file.Read(v) != v.size()) {
-            v.clear();
-            return;
-        }
+        v.resize(file.GetSize() / sizeof(T));
+        file.Read(v);
     }
 }
 
@@ -259,46 +228,7 @@ void DataBase::Load(BlobType type, const std::string& name, std::vector<u32>& da
     return LoadVector(type, path, data);
 }
 
-size_t DataBase::CountBlobs(BlobType type) {
-    const auto& ext = GetBlobFileExtension(type);
-    size_t count = 0;
-    if (EmulatorSettings.IsPipelineCacheArchived()) {
-        const auto num_files = mz_zip_reader_get_num_files(&zip_ar);
-        for (int index = 0; index < num_files; ++index) {
-            std::array<char, MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE> file_name{};
-            mz_zip_reader_get_filename(&zip_ar, index, file_name.data(), file_name.size());
-            count += std::string{file_name.data()}.ends_with(ext);
-        }
-        return count;
-    }
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator{cache_path, error}) {
-        count += entry.path().extension().string().ends_with(ext);
-    }
-    return count;
-}
-
-std::vector<std::string> DataBase::ListBlobs(BlobType type) {
-    std::vector<std::string> names;
-    if (!opened || EmulatorSettings.IsPipelineCacheArchived()) {
-        return names;
-    }
-    const auto ext = "." + GetBlobFileExtension(type);
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator{cache_path, error}) {
-        if (entry.path().extension() == ext) {
-            names.push_back(entry.path().stem().string());
-        }
-    }
-    return names;
-}
-
-bool DataBase::ConcurrentReads() const {
-    return !EmulatorSettings.IsPipelineCacheArchived();
-}
-
-void DataBase::ForEachBlob(BlobType type, const std::function<void(std::vector<u8>&& data)>& func,
-                           const std::function<bool()>& stop) {
+void DataBase::ForEachBlob(BlobType type, const std::function<void(std::vector<u8>&& data)>& func) {
     const auto& ext = GetBlobFileExtension(type);
     if (EmulatorSettings.IsPipelineCacheArchived()) {
         const auto num_files = mz_zip_reader_get_num_files(&zip_ar);
@@ -316,9 +246,6 @@ void DataBase::ForEachBlob(BlobType type, const std::function<void(std::vector<u
         }
     } else {
         for (const auto& file_name : std::filesystem::directory_iterator{cache_path}) {
-            if (stop && stop()) {
-                return;
-            }
             if (file_name.path().extension().string().ends_with(ext)) {
                 using namespace Common::FS;
                 const auto& file = IOFile{file_name, FileAccessMode::Read};
@@ -330,20 +257,6 @@ void DataBase::ForEachBlob(BlobType type, const std::function<void(std::vector<u
             }
         }
     }
-}
-
-void DataBase::Clear() {
-    if (!opened || EmulatorSettings.IsPipelineCacheArchived()) {
-        return;
-    }
-    std::error_code ec;
-    u64 removed = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(cache_path, ec)) {
-        if (entry.is_regular_file(ec) && std::filesystem::remove(entry.path(), ec)) {
-            ++removed;
-        }
-    }
-    LOG_WARNING(Render, "Pipeline cache cleared ({} files): it is rebuilt for this build", removed);
 }
 
 void DataBase::FinishPreload() {

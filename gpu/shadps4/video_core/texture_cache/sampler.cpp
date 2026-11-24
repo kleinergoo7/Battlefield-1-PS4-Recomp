@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
-#include "spartanport_settings.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/texture_cache/sampler.h"
@@ -10,22 +9,14 @@
 namespace VideoCore {
 
 Sampler::Sampler(const Vulkan::Instance& instance, const AmdGpu::Sampler& sampler,
-                 const AmdGpu::BorderColorBuffer border_color_base, const bool is_depth, float extra_lod_bias) {
+                 const AmdGpu::BorderColorBuffer border_color_base, const bool is_depth) {
     using namespace Vulkan;
-    const bool game_anisotropy = AmdGpu::IsAnisoFilter(sampler.xy_mag_filter) ||
-                                 AmdGpu::IsAnisoFilter(sampler.xy_min_filter);
-    // spartanport: the menu's anisotropic filtering, on filtered and mipmapped textures (not on
-    // point-sampled lookups, unmipmapped render targets or depth compares).
-    const int forced = SpartanSettings::Get().startup_anisotropy;
-    const bool force_anisotropy = forced > 1 && !is_depth &&
-                                  sampler.xy_min_filter != AmdGpu::Filter::Point &&
-                                  sampler.mip_filter != AmdGpu::MipFilter::None;
-    const bool anisotropy_enable =
-        instance.IsAnisotropicFilteringSupported() && (game_anisotropy || force_anisotropy);
-    const float requested = std::max(game_anisotropy ? sampler.MaxAniso() : 1.0f,
-                                     force_anisotropy ? float(forced) : 1.0f);
+    const bool anisotropy_enable = instance.IsAnisotropicFilteringSupported() &&
+                                   (AmdGpu::IsAnisoFilter(sampler.xy_mag_filter) ||
+                                    AmdGpu::IsAnisoFilter(sampler.xy_min_filter));
     const float max_anisotropy =
-        anisotropy_enable ? std::clamp(requested, 1.0f, instance.MaxSamplerAnisotropy()) : 1.0f;
+        anisotropy_enable ? std::clamp(sampler.MaxAniso(), 1.0f, instance.MaxSamplerAnisotropy())
+                          : 1.0f;
     auto border_color = LiverpoolToVK::BorderColor(sampler.border_color_type);
     if (border_color == vk::BorderColor::eFloatCustomEXT &&
         !instance.IsCustomBorderColorSupported()) {
@@ -60,16 +51,14 @@ Sampler::Sampler(const Vulkan::Instance& instance, const AmdGpu::Sampler& sample
         .addressModeU = LiverpoolToVK::ClampMode(sampler.clamp_x),
         .addressModeV = LiverpoolToVK::ClampMode(sampler.clamp_y),
         .addressModeW = LiverpoolToVK::ClampMode(sampler.clamp_z),
-        .mipLodBias = std::clamp(sampler.LodBias() + extra_lod_bias, -instance.MaxSamplerLodBias(),
-                                 instance.MaxSamplerLodBias()),
+        .mipLodBias = std::min(sampler.LodBias(), instance.MaxSamplerLodBias()),
         .anisotropyEnable = anisotropy_enable,
         .maxAnisotropy = max_anisotropy,
         // GCN compares per instruction; a plain read of a compare sampler is undefined in Vulkan.
         .compareEnable = is_depth,
         .compareOp = LiverpoolToVK::DepthCompare(sampler.depth_compare_func),
         .minLod = sampler.MinLod(),
-        // spartanport: stale guest descriptors must still satisfy Vulkan's min/max LOD rule.
-        .maxLod = std::max(sampler.MinLod(), sampler.MaxLod()),
+        .maxLod = sampler.MaxLod(),
         .borderColor = border_color,
         .unnormalizedCoordinates = false, // Handled in shader due to Vulkan limitations.
     };

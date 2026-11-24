@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
@@ -38,6 +38,7 @@ struct Profile {
     bool supports_trinary_minmax{};
     bool supports_buffer_fp32_atomic_min_max{};
     bool supports_image_fp32_atomic_min_max{};
+    bool supports_shared_fp32_atomic_min_max{};
     bool supports_buffer_int64_atomics{};
     bool supports_shared_int64_atomics{};
     bool supports_workgroup_explicit_memory_layout{};
@@ -47,16 +48,13 @@ struct Profile {
     bool has_broken_spirv_clamp{};
     bool lower_left_origin_mode{};
     bool needs_manual_interpolation{};
-    /// spartanport: NVIDIA without fragment shader barycentrics (Pascal and older).
-    bool needs_integer_interpolation_fix{};
     bool needs_lds_barriers{};
     bool needs_buffer_offsets{};
     bool needs_unorm_fixup{};
     bool needs_clip_distance_emulation{};
     bool supports_shader_stencil_export{};
-    /// spartanport: SPARTAN_LIGHTING_TEST=dref (vk_lighting_test.h): depth comparisons return the result
-    /// in all four channels instead of (v, 0, 0, 0).
-    bool dref_broadcast{};
+    bool fast_shader_math{};
+    bool support_bda{};
 
     bool operator==(const Profile&) const = default;
 };

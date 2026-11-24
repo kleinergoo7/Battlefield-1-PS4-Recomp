@@ -3,10 +3,7 @@
 
 #pragma once
 
-#include <cstdlib>
-
 #include <condition_variable>
-#include <deque>
 #include <coroutine>
 #include <exception>
 #include <mutex>
@@ -21,6 +18,7 @@
 #include "common/types.h"
 #include "common/unique_function.h"
 #include "video_core/amdgpu/cb_db_extent.h"
+#include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/amdgpu/regs.h"
 
 namespace Vulkan {
@@ -33,9 +31,11 @@ struct VideoOutPort;
 
 namespace AmdGpu {
 
-union PM4Header;
-
 struct Liverpool {
+    u32 idle_generation{}; // spartanport compat
+    u64 submissions_total{}; // spartanport compat
+    u64 SubmissionsTotal() const { return submissions_total; }
+    u32 IdleGeneration() const { return idle_generation; }
     static constexpr u32 GfxQueueId = 0u;
     static constexpr u32 NumGfxRings = 1u;     // actually 2, but HP is reserved by system software
     static constexpr u32 NumComputePipes = 7u; // actually 8, but #7 is reserved by system software
@@ -65,32 +65,9 @@ struct Liverpool {
     };
 
     Regs regs{};
+    u32 index_buffer_num_indices{};
     std::array<CbDbExtent, NUM_COLOR_BUFFERS> last_cb_extent{};
     CbDbExtent last_db_extent{};
-    /// spartanport: register blocks written since the last draw handed to the draw recording thread
-    /// (Rasterizer::PostDraw sends them along).
-    RegDirty pipe_dirty;
-    /// spartanport: fence writes handed to the draw recording thread and not yet done there: a
-    /// WaitRegMem on one of them is met in stream order without waiting for that thread.
-    struct PendingFence {
-        VAddr address;
-        u64 data;
-        u32 num_bytes;
-        u64 position;
-    };
-    std::deque<PendingFence> pending_fences;
-    void NotePendingFences(const auto& event);
-    bool PendingFenceValue(VAddr address, u32& value);
-    void NotePendingWrite(const struct PM4CmdWriteData& write_data, u32 num_bytes);
-    /// spartanport: running checksum of graphics-register packets (see ApplyGraphicsRegisterPacket).
-    u64 gfx_reg_checksum{};
-    /// Top-level graphics submissions, numbered for the draw preparation workers.
-    static constexpr u64 NoSeq = ~0ull;
-    u64 gfx_submit_seq{};
-    static u64 HashRegisterPacket(u64 checksum, const u32* words, u32 count);
-    /// `dirty` (draw-preparation scanner) records the register blocks written.
-    static void ApplyGraphicsRegisterPacket(Regs& regs, const PM4Header* header, u64& checksum,
-                                            RegDirty* dirty = nullptr);
 
 public:
     explicit Liverpool();
@@ -112,25 +89,8 @@ public:
         submit_cv.wait(lk, [this] { return num_submits == 0; });
     }
 
-    /// spartanport: also the draw recording thread and the fences it deferred are done (see
-    /// work_retired). sceGnmSubmitDone does not block the guest when this is true.
     bool IsGpuIdle() const {
-        static const bool use_retired = [] {
-            const char* env = std::getenv("SPARTAN_WORK_RETIRED");
-            return !(env && env[0] == '0');
-        }();
-        return num_submits == 0 && (work_retired || !use_retired);
-    }
-
-    // spartanport: record the submission count so an older idle cannot release a newer lock.
-    u64 SubmissionsTotal() {
-        std::scoped_lock lk{submit_mutex};
-        return submissions_total;
-    }
-
-    // spartanport: read the completed count so idle handlers can reject stale interrupts.
-    u64 IdleGeneration() const {
-        return idle_generation.load(std::memory_order_acquire);
+        return num_submits == 0;
     }
 
     void SetVoPort(Libraries::VideoOut::VideoOutPort* port) {
@@ -184,13 +144,13 @@ public:
         std::array<u32, Pm4BufferSize> tmp_packet;
         u32 tmp_dwords;
     };
-    Common::SlotVector<AscQueueInfo> asc_queues{};
+    Common::SlotVector<AscQueueInfo> asc_queues{64};
 
     std::thread::id GetGpuCommandProcessorThread() {
         return gpu_id;
     }
 
-#if defined(__linux__) || defined(_WIN32)
+#ifdef __linux__
     u32 GetGpuCommandProcessorThreadId() {
         return gpu_tid;
     }
@@ -231,13 +191,15 @@ private:
 
     using CmdBuffer = std::pair<std::span<const u32>, std::span<const u32>>;
     CmdBuffer CopyCmdBuffers(std::span<const u32> dcb, std::span<const u32> ccb);
-    Task ProcessGraphics(std::span<const u32> dcb, std::span<const u32> ccb, u64 seq = NoSeq);
+    Task ProcessGraphics(std::span<const u32> dcb);
     Task ProcessCeUpdate(std::span<const u32> ccb);
     template <bool is_indirect = false>
     Task ProcessCompute(std::span<const u32> acb, u32 vqid);
 
     void ProcessCommands();
+    void ProcessCeQueue();
     void Process(std::stop_token stoken);
+    void HandleGetLodStats(const PM4CmdGetLodStats* get_lod);
 
     struct GpuQueue {
         std::mutex m_access{};
@@ -249,25 +211,20 @@ private:
         ComputeProgram cs_state{};
     };
     std::array<GpuQueue, NumTotalQueues> mapped_queues{};
+    std::queue<Task::Handle> ce_submits;
     u32 num_mapped_queues{1u}; // GFX is always available
 
     VAddr indirect_args_addr{};
     u32 num_counter_pairs{};
     u64 pixel_counter{};
+    u32 vgt_strmout_buffer_filled_size[4]{};
 
     struct ConstantEngine {
-        void Reset() {
-            ce_count = 0;
-            de_count = 0;
-            ce_compare_count = 0;
-        }
-
         [[nodiscard]] u32 Diff() const {
             ASSERT_MSG(ce_count >= de_count, "DE counter is ahead of CE");
             return ce_count - de_count;
         }
 
-        u32 ce_compare_count{};
         u32 ce_count{};
         u32 de_count{};
         static std::array<u8, 48_KB> constants_heap;
@@ -278,21 +235,14 @@ private:
     const bool guest_markers_enabled;
     std::jthread process_thread{};
     std::atomic<u32> num_submits{};
-    /// spartanport: false from a submission until its draws and deferred fences are done (stage A
-    /// decrements num_submits once it has decoded a submission, before that). Under
-    /// submit_mutex with num_submits.
-    std::atomic<bool> work_retired{true};
-    // spartanport: distinguish submitted work from the generation covered by the idle interrupt.
-    std::atomic<u64> submissions_total{};
-    std::atomic<u64> idle_generation{};
     std::atomic<u32> num_commands{};
     std::atomic<bool> submit_done{};
     std::mutex submit_mutex;
     std::condition_variable_any submit_cv;
     std::queue<Common::UniqueFunction<void>> command_queue{};
     std::thread::id gpu_id;
-#if defined(__linux__) || defined(_WIN32)
-    u32 gpu_tid{};
+#ifdef __linux__
+    u32 gpu_tid;
 #endif
     s32 curr_qid{-1};
 };

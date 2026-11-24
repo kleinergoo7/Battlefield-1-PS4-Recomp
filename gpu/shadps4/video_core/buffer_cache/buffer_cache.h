@@ -3,20 +3,17 @@
 
 #pragma once
 
-#include "spartanport_copy.h"
-
-#include <mutex>
-#include "spartanport_spin_lock.h"
-#include <array>
 #include <deque>
 #include <boost/container/small_vector.hpp>
 
+#include "common/enum.h"
 #include "common/interval_set.h"
 #include "common/types.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/buffer_cache/fault_manager.h"
 #include "video_core/buffer_cache/range_set.h"
 #include "video_core/renderer_vulkan/vk_semaphore.h"
+#include "video_core/texture_cache/image.h"
 
 namespace AmdGpu {
 struct Liverpool;
@@ -31,6 +28,7 @@ class GraphicsPipeline;
 struct SubmitInfo;
 class Runtime;
 class StagingBufferPool;
+struct StagingBufferRef;
 } // namespace Vulkan
 
 namespace VideoCore {
@@ -39,20 +37,24 @@ class TextureCache;
 class MemoryTracker;
 class PageManager;
 
+enum class ObtainBufferFlags {
+    None = 0,
+    IsWritten = 1 << 0,
+    IsTexelBuffer = 1 << 1,
+    IgnoreStreamBuffer = 1 << 2,
+    InvalidateTextureCache = 1 << 3,
+};
+DECLARE_ENUM_FLAG_OPERATORS(ObtainBufferFlags)
+
 class BufferCache {
     static constexpr u64 ADDRESS_SPACE_BITS = 40;
-    // spartanport: arena pages are 4 GiB unless the driver's buffer size limit is lower (AMD's
-    // Windows driver: 2 GiB); an arena spans up to two pages, so they shrink to half the limit.
-    static constexpr u64 MAX_ARENA_PAGE_BITS = 32;
-    static constexpr u64 MIN_ARENA_PAGE_BITS = 30;
-    static constexpr u64 MAX_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - MIN_ARENA_PAGE_BITS);
+    static constexpr u64 ARENA_PAGE_BITS = 32;
+    static constexpr u64 ARENA_PAGE_SIZE = u64{1} << ARENA_PAGE_BITS;
+    static constexpr u64 NUM_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - ARENA_PAGE_BITS);
     static constexpr u64 MIN_BLOCK_SIZE = 16_KB;
-
-public:
-    /// Read-only bindings up to this size are copied into a stream buffer (spartanport: public for
-    /// the draw pipeline's constant ring).
     static constexpr u64 STREAM_THRESHOLD = 16_KB;
 
+public:
     explicit BufferCache(const Vulkan::Instance& instance, Vulkan::Scheduler& scheduler,
                          Vulkan::Runtime& runtime, AmdGpu::Liverpool* liverpool,
                          TextureCache& texture_cache, PageManager& tracker);
@@ -61,6 +63,10 @@ public:
     /// Returns a pointer to GDS device local buffer.
     [[nodiscard]] const Buffer* GetGdsBuffer() const noexcept {
         return &gds_buffer;
+    }
+
+    [[nodiscard]] const Buffer* GetNullIndexBuffer() const noexcept {
+        return null_index_buffer.get();
     }
 
     /// Retrieves the device local DBA page table buffer.
@@ -74,7 +80,7 @@ public:
     }
 
     /// Retrieves the stream buffer.
-    StreamBuffer& GetStreamBuffer() noexcept {
+    [[nodiscard]] StreamBuffer& GetStreamBuffer() noexcept {
         return stream_buffer;
     }
 
@@ -83,22 +89,24 @@ public:
         return block_shift;
     }
 
+    void TickFrame();
+
     /// Invalidates any buffer in the logical page range.
     void InvalidateMemory(VAddr device_addr, u64 size, bool assume_locks = false);
 
-    /// spartanport: a guest write fault at `device_addr` was handled; unprotect its neighbourhood.
-    void ExtendWriteFault(VAddr device_addr);
+    /// Unmark a region as modified from the GPU.
+    void UnmarkRegionAsGpuModified(VAddr device_addr, u64 size, bool is_write = false);
 
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
-    void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, bool assume_locks = false);
+    void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, bool async = false,
+                    bool assume_locks = false);
+
+    /// Flushes GPU modified ranges of the uncovered part of the edge pages of an image.
+    void ReadEdgeImagePages(const Image& image);
 
     /// Finds a buffer for the specified region.
-    /// spartanport: taken by ObtainBuffer while draw resolvers run in parallel (parallel
-    /// recording); null otherwise.
-    SpartanSpin::RecursiveLock* obtain_lock = nullptr;
-    [[nodiscard]] std::pair<const Buffer*, u64> ObtainBuffer(VAddr device_addr, u32 size,
-                                                             bool is_written,
-                                                             bool is_texel_buffer = false);
+    [[nodiscard]] std::pair<const Buffer*, u64> ObtainBuffer(
+        VAddr device_addr, u32 size, ObtainBufferFlags flags = ObtainBufferFlags::None);
 
     /// Attempts to obtain a buffer without modifying the cache contents.
     [[nodiscard]] std::pair<const Buffer*, u64> ObtainBufferForImage(VAddr device_addr, u32 size);
@@ -109,8 +117,8 @@ public:
     /// Return true when a region is modified from the GPU
     [[nodiscard]] bool IsRegionGpuModified(VAddr addr, size_t size);
 
-    /// Processes the fault buffer.
-    void ProcessFaultBuffer();
+    /// Mark region as modified from the GPU
+    void MarkRegionAsGpuModified(VAddr addr, size_t size);
 
     /// Synchronizes all buffers needed for DMA.
     void SynchronizeDmaBuffers();
@@ -136,29 +144,15 @@ private:
 
     void EnsureResident(const Buffer* arena, u64 first_block, u64 last_block);
 
-    void DownloadMemory(const Buffer* arena, VAddr device_addr, u64 size);
+    void DownloadMemory(const Buffer* arena, VAddr device_addr, u64 size, bool async);
 
     bool SynchronizeMemory(const Buffer* arena, VAddr device_addr, u32 size, bool is_written,
                            bool is_texel_buffer);
-
-    /// spartanport: batched small copies on the copy threads (SpartanCopy::QueueCopy).
-    static void RunGuestCopy(const SpartanCopy::Item& item);
-    void SmallGuestCopy(const SpartanCopy::Item& item);
-
-    const Buffer* UploadCopies(const Buffer* arena, std::span<vk::BufferCopy> copies,
-                               size_t total_size_bytes);
 
     bool SynchronizeMemoryFromImage(const Buffer* arena, VAddr device_addr, u32 size);
 
     const Vulkan::Instance& instance;
     Vulkan::Scheduler& scheduler;
-    // spartanport: texel buffer ranges known not to alias an image, per image registry generation.
-    struct ImageMiss {
-        VAddr address = 0;
-        u32 size = 0;
-        u64 generation = ~0ULL;
-    };
-    std::array<ImageMiss, 256> image_miss_cache{};
     Vulkan::Runtime& runtime;
     Vulkan::StagingBufferPool& staging_pool;
     AmdGpu::Liverpool* liverpool;
@@ -168,15 +162,14 @@ private:
 
     StreamBuffer stream_buffer;
     Buffer gds_buffer;
+    std::unique_ptr<Buffer> null_index_buffer;
     RangeSet gpu_modified_ranges;
 
     std::unique_ptr<FaultManager> fault_manager;
     std::unique_ptr<Buffer> bda_pagetable_buffer;
+    bool fault_process_pending{};
 
-    std::array<const Buffer*, MAX_ARENA_PAGES> address_space{};
-    u64 arena_page_bits{MAX_ARENA_PAGE_BITS};
-    u64 arena_page_size{u64{1} << MAX_ARENA_PAGE_BITS};
-    u64 num_arena_pages{u64{1} << (ADDRESS_SPACE_BITS - MAX_ARENA_PAGE_BITS)};
+    std::array<const Buffer*, NUM_ARENA_PAGES> address_space{};
     std::deque<Buffer> arenas;
     std::vector<ArenaBinds> pending_binds;
     Vulkan::Semaphore memory_semaphore;
@@ -193,13 +186,7 @@ private:
     };
     IntervalList<Backing> resident_ranges;
 
-    /// spartanport: memory types for arena residency, device-local first; the next one is tried
-    /// when a type's heap is out of memory (integrated GPUs: a small carve-out heap). Arena bytes
-    /// are counted per heap, since several memory types can share one.
-    boost::container::small_vector<u32, VK_MAX_MEMORY_TYPES> arena_memory_types;
-    std::array<u64, VK_MAX_MEMORY_HEAPS> arena_heap_bytes{};
-    u32 arena_fallback_logged{};
-    u64 arena_limit_bytes{};
+    u32 arena_memory_type_index{};
     u32 block_size{};
     u32 block_shift{};
     u32 blocks_per_arena_page{};

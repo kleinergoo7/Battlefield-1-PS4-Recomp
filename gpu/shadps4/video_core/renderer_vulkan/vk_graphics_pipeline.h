@@ -1,9 +1,7 @@
-// SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
-
-#include <algorithm>
 
 #include <boost/container/static_vector.hpp>
 #include <xxhash.h>
@@ -43,9 +41,9 @@ struct GraphicsPipelineKey {
     AmdGpu::ColorControl::LogicOp logic_op;
     u8 num_samples;
     u8 depth_samples;
+    vk::SampleMask sample_mask;
     std::array<u8, AmdGpu::NUM_COLOR_BUFFERS> color_samples;
     u32 mrt_mask;
-    u32 motion_vectors = 0;
     struct {
         AmdGpu::DepthBuffer::ZFormat z_format : 2;
         AmdGpu::DepthBuffer::StencilFormat stencil_format : 1;
@@ -91,27 +89,17 @@ public:
                      vk::PipelineCache pipeline_cache,
                      std::span<const Shader::Info*, MaxShaderStages> stages,
                      std::span<const Shader::RuntimeInfo, MaxShaderStages> runtime_infos,
-                     std::optional<const Shader::Gcn::FetchShaderData> fetch_shader,
+                     const Shader::Gcn::FetchShaderData* fetch_shader,
                      std::span<const vk::ShaderModule> modules, SerializationSupport& sdata,
                      bool preloading);
     ~GraphicsPipeline();
 
-    // spartanport: switch from compiler-owned snapshots to live stage data on publication.
-    void PublishStages(std::span<const Shader::Info*, MaxShaderStages> infos) {
-        std::ranges::copy(infos, stages.begin());
-    }
-
-    const std::optional<const Shader::Gcn::FetchShaderData>& GetFetchShader() const noexcept {
+    const Shader::Gcn::FetchShaderData& GetFetchShader() const noexcept {
         return fetch_shader;
     }
 
     const GraphicsPipelineKey& GetGraphicsKey() const {
         return key;
-    }
-
-    /// spartanport: second draw squaring a self-scaled MIN/MAX blend, or null (vk_blend_rewrite.h).
-    vk::Pipeline SquarePassHandle() const noexcept {
-        return *square_pipeline;
     }
 
     /// Gets the attributes and bindings for vertex inputs.
@@ -126,8 +114,7 @@ private:
 
 private:
     GraphicsPipelineKey key;
-    std::optional<const Shader::Gcn::FetchShaderData> fetch_shader{};
-    vk::UniquePipeline square_pipeline;
+    Shader::Gcn::FetchShaderData fetch_shader{};
 };
 
 struct ClipDistanceShaderKey {

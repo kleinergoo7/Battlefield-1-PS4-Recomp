@@ -1,11 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include "spartanport_toggles.h"
 #include <algorithm>
 #include <bit>
-#include <cstdlib>
-#include <cstring>
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -21,14 +18,8 @@ using VideoCore::MemoryType;
 
 namespace {
 
-// spartanport: staging memory is populated (allocated and cleared) by the kernel on first CPU access,
-// ~2 ms per 16 MiB block. Streaming bursts a few seconds apart re-created the blocks trimmed
-// in between and copies into them ran at 0.3 GB/s (stutter). Blocks now live 30 s idle, the
-// upload ring keeps SPARTAN_STAGING_KEEP_MB (512) and is populated at startup.
-constexpr u64 RING_IDLE_FRAMES = 3000;
-constexpr u64 VRAM_RING_IDLE_FRAMES = 600; ///< spartanport: a few seconds
-constexpr u64 LARGE_IDLE_FRAMES = 3000;
-constexpr u64 PREWARM_BLOCKS = 8;
+constexpr u64 RING_IDLE_FRAMES = 300;
+constexpr u64 LARGE_IDLE_FRAMES = 120;
 constexpr u64 LARGE_MIN_GRANULARITY = 64_KB;
 constexpr u64 BLOCK_SIZE = 16_MB;
 
@@ -40,39 +31,21 @@ u64 RoundAllocationSize(u64 size) {
 } // Anonymous namespace
 
 StagingBufferPool::StagingBufferPool(const Instance& instance_, Scheduler& scheduler_)
-    : instance{instance_}, scheduler{scheduler_} {
-    const char* env = std::getenv("SPARTAN_STAGING_KEEP_MB");
-    keep_blocks = (env ? std::strtoull(env, nullptr, 10) : 512) * 1_MB / BLOCK_SIZE;
-    // spartanport: the VRAM ring (scratch for detiling and copies) keeps far less: blocks kept
-    // for a burst of uploads at an area load stayed in VRAM for good.
-    const char* vram_env = std::getenv("SPARTAN_STAGING_KEEP_VRAM_MB");
-    keep_vram_blocks = (vram_env ? std::strtoull(vram_env, nullptr, 10) : 32) * 1_MB / BLOCK_SIZE;
-    Ring& ring = rings[u32(MemoryType::HostUncached)];
-    for (u64 i = 0; i < PREWARM_BLOCKS; ++i) {
-        auto& block = ring.blocks.emplace_back(Block{
-            .buffer = std::make_unique<VideoCore::StreamBuffer>(
-                instance, scheduler, MemoryType::HostUncached, BLOCK_SIZE),
-            .last_used_frame = frame,
-        });
-        if (!block.buffer->mapped_data.empty()) {
-            std::memset(block.buffer->mapped_data.data(), 0, block.buffer->mapped_data.size());
-        }
-    }
-}
+    : instance{instance_}, scheduler{scheduler_} {}
 
 StagingBufferPool::~StagingBufferPool() = default;
 
-StagingBufferRef StagingBufferPool::Request(u64 size, MemoryType type, u64 alignment,
-                                            bool deferred) {
+StagingBufferRef StagingBufferPool::Request(u64 size, MemoryType type, u64 alignment, bool deferred,
+                                            bool unsynchronized) {
     Ring& ring = rings[u32(type)];
     if (deferred || size > BLOCK_SIZE) {
-        return RequestLarge(size, type, deferred);
+        return RequestLarge(size, type, deferred, unsynchronized);
     }
-    return RequestFromRing(ring, size, alignment, type);
+    return RequestFromRing(ring, size, alignment, type, unsynchronized);
 }
 
 StagingBufferRef StagingBufferPool::RequestFromRing(Ring& ring, u64 size, u64 alignment,
-                                                    MemoryType type) {
+                                                    MemoryType type, bool unsynchronized) {
     Block* best{};
     u64 best_offset{};
     for (size_t i = 0; i < ring.blocks.size(); ++i) {
@@ -87,13 +60,18 @@ StagingBufferRef StagingBufferPool::RequestFromRing(Ring& ring, u64 size, u64 al
     }
 
     if (!best) {
-        best = &ring.blocks.emplace_back(Block{
-            .buffer =
-                std::make_unique<VideoCore::StreamBuffer>(instance, scheduler, type, BLOCK_SIZE),
-            .last_used_frame = frame,
-        });
-        ring.current = ring.blocks.size() - 1;
-        best_offset = *best->buffer->Reserve(size, alignment, false);
+        if (!ring.blocks.empty() && unsynchronized) {
+            best = &ring.blocks[(ring.current + 1) % ring.blocks.size()];
+            best_offset = 0;
+        } else {
+            best = &ring.blocks.emplace_back(Block{
+                .buffer = std::make_unique<VideoCore::StreamBuffer>(instance, scheduler, type,
+                                                                    BLOCK_SIZE),
+                .last_used_frame = frame,
+            });
+            ring.current = ring.blocks.size() - 1;
+            best_offset = *best->buffer->Reserve(size, alignment, false);
+        }
     }
 
     auto& buffer = *best->buffer;
@@ -111,7 +89,8 @@ StagingBufferRef StagingBufferPool::RequestFromRing(Ring& ring, u64 size, u64 al
     return ref;
 }
 
-StagingBufferRef StagingBufferPool::RequestLarge(u64 size, MemoryType type, bool deferred) {
+StagingBufferRef StagingBufferPool::RequestLarge(u64 size, MemoryType type, bool deferred,
+                                                 bool unsynchronized) {
     auto& cache = large_caches[u32(type)];
     const u64 max_size = std::max(size + size / 4, RoundAllocationSize(size));
 
@@ -119,7 +98,7 @@ StagingBufferRef StagingBufferPool::RequestLarge(u64 size, MemoryType type, bool
     for (LargeBuffer& entry : cache) {
         const u64 entry_size = entry.buffer->SizeBytes();
         if (entry.held || entry_size < size || entry_size > max_size ||
-            !scheduler.IsFree(entry.tick)) {
+            (!scheduler.IsFree(entry.tick) && !unsynchronized)) {
             continue;
         }
         if (!best || entry_size < best->buffer->SizeBytes()) {
@@ -166,15 +145,8 @@ void StagingBufferPool::FreeDeferred(const StagingBufferRef& ref) {
 
 void StagingBufferPool::TickFrame() {
     ++frame;
-    // spartanport: each frame the VRAM ring starts again at its first block, so the blocks a
-    // burst of uploads added fall idle and are trimmed; going round from the current block kept
-    // them all in use. Within a frame requests go on from the last block that had room, so a
-    // burst does not probe every full block again for each request.
-    rings[u32(MemoryType::DeviceLocal)].current = 0;
-    for (u32 type = 0; type < rings.size(); ++type) {
-        const bool vram = type == u32(MemoryType::DeviceLocal);
-        TrimRing(rings[type], vram ? keep_vram_blocks : keep_blocks,
-                 vram ? VRAM_RING_IDLE_FRAMES : RING_IDLE_FRAMES);
+    for (Ring& ring : rings) {
+        TrimRing(ring);
     }
     for (auto& cache : large_caches) {
         TrimLarge(cache);
@@ -182,11 +154,11 @@ void StagingBufferPool::TickFrame() {
     PublishStats();
 }
 
-void StagingBufferPool::TrimRing(Ring& ring, u64 keep, u64 idle_frames) {
+void StagingBufferPool::TrimRing(Ring& ring) {
     auto& blocks = ring.blocks;
     for (size_t i = blocks.size(); i-- > 0;) {
         const Block& block = blocks[i];
-        if (blocks.size() <= keep || frame - block.last_used_frame < idle_frames ||
+        if (frame - block.last_used_frame < RING_IDLE_FRAMES ||
             !scheduler.IsFree(block.buffer->LastTick())) {
             continue;
         }

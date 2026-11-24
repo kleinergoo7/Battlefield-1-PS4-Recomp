@@ -20,7 +20,8 @@
 
 // Level type keeps shadPS4's spdlog spelling so vendored callers compile unchanged.
 namespace spdlog {
-enum class level : int { trace, debug, info, warn, err, critical, off };
+enum class level : int { trace, debug, info, warn, err, critical, off,
+                                 Info = info, Debug = debug, Warning = warn, Error = err, Critical = critical, Trace = trace };
 }
 namespace Common::Log {
 using Level = spdlog::level;
@@ -43,3 +44,6 @@ inline void Flush() {}
 #define LOG_WARNING(log_class, ...) LOG_GENERIC(Common::Log::Class::log_class, spdlog::level::warn, __VA_ARGS__)
 #define LOG_ERROR(log_class, ...) LOG_GENERIC(Common::Log::Class::log_class, spdlog::level::err, __VA_ARGS__)
 #define LOG_CRITICAL(log_class, ...) LOG_GENERIC(Common::Log::Class::log_class, spdlog::level::critical, __VA_ARGS__)
+
+// spartanport: upstream shadPS4 log macros use bare class names.
+using namespace Common::Log::Class;

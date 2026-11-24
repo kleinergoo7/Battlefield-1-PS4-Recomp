@@ -30,9 +30,9 @@ namespace VideoCore {
 
 struct TilingInfo {
     u32 bank_swizzle;
-    u32 num_slices;
+    u32 micro_tiled_mips;
     u32 num_mips;
-    std::array<ImageInfo::MipInfo, 16> mips;
+    std::array<MipInfo, MAX_MIPS> mips;
 };
 
 TileManager::TileManager(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
@@ -72,16 +72,11 @@ TileManager::TileManager(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     desc_layout = std::move(desc_layout_result.value);
 
     const vk::DescriptorSetLayout set_layout = *desc_layout;
-    const vk::PushConstantRange push_range = {
-        .stageFlags = vk::ShaderStageFlagBits::eCompute,
-        .offset = 0,
-        .size = sizeof(u32),
-    };
     const vk::PipelineLayoutCreateInfo layout_info = {
         .setLayoutCount = 1U,
         .pSetLayouts = &set_layout,
-        .pushConstantRangeCount = 1U,
-        .pPushConstantRanges = &push_range,
+        .pushConstantRangeCount = 0U,
+        .pPushConstantRanges = nullptr,
     };
     auto [layout_result, layout] = device.createPipelineLayoutUnique(layout_info);
     ASSERT_MSG(layout_result == vk::Result::eSuccess, "Failed to create pipeline layout: {}",
@@ -198,77 +193,6 @@ vk::Pipeline TileManager::GetTilingPipeline(const ImageInfo& info, bool is_tiler
     return handle;
 }
 
-void TileManager::RecordTilingDispatch(vk::Pipeline pipeline, const vk::DescriptorBufferInfo& tiled,
-                                       const vk::DescriptorBufferInfo& linear,
-                                       const vk::DescriptorBufferInfo& params, u32 dim_x,
-                                       const ImageInfo& info, bool is_tiler) {
-    if (dim_x == 0) {
-        return;
-    }
-
-    const auto& limits = instance.GetLimits();
-    const u32 max_groups_x = limits.maxComputeWorkGroupCount[0];
-    const u32 batch_limit = (max_groups_x > 0) ? max_groups_x : 65535U;
-
-    if (dim_x > batch_limit) {
-        LOG_WARNING(Render_Vulkan,
-                    "{} dispatch exceeds maxComputeWorkGroupCount[0]: requested [{}, 1, 1], "
-                    "device limits [{}, {}, {}], guest_size={}, num_bits={}, size={}x{}x{}, "
-                    "levels={}, layers={}, tiling_mode={}. Batching into {} dispatches.",
-                    is_tiler ? "TileImage" : "DetileImage", dim_x,
-                    limits.maxComputeWorkGroupCount[0], limits.maxComputeWorkGroupCount[1],
-                    limits.maxComputeWorkGroupCount[2], info.guest_size, info.num_bits,
-                    info.size.width, info.size.height, info.size.depth,
-                    info.resources.levels, info.resources.layers,
-                    static_cast<u32>(info.tile_mode),
-                    (dim_x + batch_limit - 1) / batch_limit);
-    }
-
-    scheduler.Record([pipeline, layout = *pl_layout, tiled, linear, params, dim_x,
-                      batch_limit](vk::CommandBuffer cmdbuf) {
-        if (Vulkan::Scheduler::FullBarriers()) { // spartanport: SPARTAN_FULL_BARRIERS=1
-            Vulkan::Scheduler::RecordFullBarrier(cmdbuf);
-        }
-        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
-        const std::array<vk::WriteDescriptorSet, 3> set_writes = {{
-            {
-                .dstBinding = 0,
-                .descriptorCount = 1,
-                .descriptorType = vk::DescriptorType::eStorageBuffer,
-                .pBufferInfo = &tiled,
-            },
-            {
-                .dstBinding = 1,
-                .descriptorCount = 1,
-                .descriptorType = vk::DescriptorType::eStorageBuffer,
-                .pBufferInfo = &linear,
-            },
-            {
-                .dstBinding = 2,
-                .descriptorCount = 1,
-                .descriptorType = vk::DescriptorType::eUniformBuffer,
-                .pBufferInfo = &params,
-            },
-        }};
-        cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, layout, 0, set_writes);
-
-        u32 workgroups_remaining = dim_x;
-        u32 current_base_texel = 0;
-        while (workgroups_remaining > 0) {
-            const u32 batch_groups = std::min(workgroups_remaining, batch_limit);
-            cmdbuf.pushConstants(layout, vk::ShaderStageFlagBits::eCompute, 0,
-                                 sizeof(current_base_texel), &current_base_texel);
-            cmdbuf.dispatch(batch_groups, 1, 1);
-            workgroups_remaining -= batch_groups;
-            current_base_texel += batch_groups * 64;
-        }
-
-        if (Vulkan::Scheduler::FullBarriers()) {
-            Vulkan::Scheduler::RecordFullBarrier(cmdbuf);
-        }
-    });
-}
-
 std::pair<const Buffer*, u64> TileManager::DetileImage(const VideoCore::Buffer* in_buffer,
                                                        u64 in_offset, const ImageInfo& info) {
     if (!info.props.is_tiled) {
@@ -277,14 +201,14 @@ std::pair<const Buffer*, u64> TileManager::DetileImage(const VideoCore::Buffer* 
 
     TilingInfo params{};
     params.bank_swizzle = info.bank_swizzle;
-    params.num_slices = info.props.is_volume ? info.size.depth : info.resources.layers;
+    params.micro_tiled_mips = info.micro_tiled_mips;
     params.num_mips = info.resources.levels;
     for (u32 mip = 0; mip < params.num_mips; ++mip) {
         auto& mip_info = params.mips[mip];
         mip_info = info.mips_layout[mip];
         if (info.props.is_block) {
-            mip_info.pitch = std::max((mip_info.pitch + 3) / 4, 1U);
-            mip_info.height = std::max((mip_info.height + 3) / 4, 1U);
+            mip_info.pitch = std::max<u16>((mip_info.pitch + 3) / 4, 1U);
+            mip_info.height = std::max<u16>((mip_info.height + 3) / 4, 1U);
         }
     }
 
@@ -294,25 +218,57 @@ std::pair<const Buffer*, u64> TileManager::DetileImage(const VideoCore::Buffer* 
         .range = sizeof(params),
     };
 
-    const auto staging = runtime.GetStagingPool().Request(info.guest_size, MemoryType::DeviceLocal);
+    const auto staging = runtime.GetStagingPool().Request(info.guest_size, MemoryType::DeviceLocal,
+                                                          256, false, true);
 
     scheduler.EndRendering();
     runtime.FlushBarriers();
+
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, GetTilingPipeline(info, false));
 
     const vk::DescriptorBufferInfo tiled_buffer_info{
         .buffer = in_buffer->Handle(),
         .offset = in_offset,
         .range = info.guest_size,
     };
+
     const vk::DescriptorBufferInfo linear_buffer_info{
         .buffer = staging.buffer->Handle(),
         .offset = staging.offset,
         .range = info.guest_size,
     };
-    const auto dim_x = static_cast<u32>((info.guest_size / (info.num_bits / 8)) / 64);
-    // spartanport: recorded with copies of the descriptor infos (threaded recording).
-    RecordTilingDispatch(GetTilingPipeline(info, false), tiled_buffer_info, linear_buffer_info,
-                         params_buffer_info, dim_x, info, false);
+
+    const std::array<vk::WriteDescriptorSet, 3> set_writes = {{
+        {
+            .dstSet = VK_NULL_HANDLE,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eStorageBuffer,
+            .pBufferInfo = &tiled_buffer_info,
+        },
+        {
+            .dstSet = VK_NULL_HANDLE,
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eStorageBuffer,
+            .pBufferInfo = &linear_buffer_info,
+        },
+        {
+            .dstSet = VK_NULL_HANDLE,
+            .dstBinding = 2,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo = &params_buffer_info,
+        },
+    }};
+    cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *pl_layout, 0, set_writes);
+
+    const auto dim_x = (info.guest_size / (info.num_bits / 8)) / 64;
+    cmdbuf.dispatch(dim_x, 1, 1);
 
     runtime.AccessBuffer(staging.buffer, staging.offset, info.guest_size,
                          vk::PipelineStageFlagBits2::eComputeShader,
@@ -334,14 +290,14 @@ void TileManager::TileImage(Image& in_image, std::span<vk::BufferImageCopy> buff
 
     TilingInfo params{};
     params.bank_swizzle = info.bank_swizzle;
-    params.num_slices = info.props.is_volume ? info.size.depth : info.resources.layers;
+    params.micro_tiled_mips = info.micro_tiled_mips;
     params.num_mips = static_cast<u32>(buffer_copies.size());
     for (u32 mip = 0; mip < params.num_mips; ++mip) {
         auto& mip_info = params.mips[mip];
         mip_info = info.mips_layout[mip];
         if (info.props.is_block) {
-            mip_info.pitch = std::max((mip_info.pitch + 3) / 4, 1U);
-            mip_info.height = std::max((mip_info.height + 3) / 4, 1U);
+            mip_info.pitch = std::max<u16>((mip_info.pitch + 3) / 4, 1U);
+            mip_info.height = std::max<u16>((mip_info.height + 3) / 4, 1U);
         }
     }
 
@@ -351,7 +307,8 @@ void TileManager::TileImage(Image& in_image, std::span<vk::BufferImageCopy> buff
         .range = sizeof(params),
     };
 
-    const auto staging = runtime.GetStagingPool().Request(info.guest_size, MemoryType::DeviceLocal);
+    const auto staging = runtime.GetStagingPool().Request(info.guest_size, MemoryType::DeviceLocal,
+                                                          256, false, true);
     for (auto& copy : buffer_copies) {
         copy.bufferOffset += staging.offset;
     }
@@ -359,21 +316,55 @@ void TileManager::TileImage(Image& in_image, std::span<vk::BufferImageCopy> buff
     runtime.DownloadImage(&in_image, staging.buffer, buffer_copies);
     runtime.FlushBarriers();
 
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, GetTilingPipeline(info, true));
+
     const vk::DescriptorBufferInfo tiled_buffer_info{
         .buffer = out_buffer->Handle(),
         .offset = out_offset,
         .range = info.guest_size,
     };
+
     const vk::DescriptorBufferInfo linear_buffer_info{
         .buffer = staging.buffer->Handle(),
         .offset = staging.offset,
         .range = info.guest_size,
     };
-    const auto dim_x = static_cast<u32>((info.guest_size / (info.num_bits / 8)) / 64);
-    // spartanport: recorded with copies of the descriptor infos (threaded recording).
-    RecordTilingDispatch(GetTilingPipeline(info, true), tiled_buffer_info, linear_buffer_info,
-                         params_buffer_info, dim_x, info, true);
 
+    const std::array<vk::WriteDescriptorSet, 3> set_writes = {{
+        {
+            .dstSet = VK_NULL_HANDLE,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eStorageBuffer,
+            .pBufferInfo = &tiled_buffer_info,
+        },
+        {
+            .dstSet = VK_NULL_HANDLE,
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eStorageBuffer,
+            .pBufferInfo = &linear_buffer_info,
+        },
+        {
+            .dstSet = VK_NULL_HANDLE,
+            .dstBinding = 2,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo = &params_buffer_info,
+        },
+    }};
+    cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *pl_layout, 0, set_writes);
+
+    const auto dim_x = (info.guest_size / (info.num_bits / 8)) / 64;
+    cmdbuf.dispatch(dim_x, 1, 1);
+
+    runtime.AccessBuffer(staging.buffer, staging.offset, info.guest_size,
+                         vk::PipelineStageFlagBits2::eComputeShader,
+                         vk::AccessFlagBits2::eShaderRead);
     runtime.AccessBuffer(out_buffer, out_offset, info.guest_size,
                          vk::PipelineStageFlagBits2::eComputeShader,
                          vk::AccessFlagBits2::eShaderWrite);

@@ -4,6 +4,7 @@
 // while it is open the game gets no pad/keyboard input. Settings live in spartanport_settings.h.
 
 #pragma once
+#include "video_core/renderer_vulkan/vk_shader_util.h"
 
 #include <string>
 #include <vector>

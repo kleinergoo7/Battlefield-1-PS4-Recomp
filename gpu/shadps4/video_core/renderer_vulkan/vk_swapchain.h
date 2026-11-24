@@ -17,11 +17,6 @@ namespace Vulkan {
 class Instance;
 class Scheduler;
 
-static constexpr vk::SurfaceFormatKHR SURFACE_FORMAT_HDR = {
-    .format = vk::Format::eA2B10G10R10UnormPack32,
-    .colorSpace = vk::ColorSpaceKHR::eHdr10St2084EXT,
-};
-
 class Swapchain {
 public:
     explicit Swapchain(const Instance& instance, const Frontend::WindowSDL& window);
@@ -44,17 +39,15 @@ public:
     }
 
     vk::Image Image() const {
-        return (image_index < images.size()) ? images[image_index] : vk::Image{};
+        return images[image_index];
     }
 
     vk::ImageView ImageView() const {
-        return (image_index < images_view.size()) ? images_view[image_index] : vk::ImageView{};
+        return images_view[image_index];
     }
 
-    /// The format of the swapchain images, which every pass drawing into them is built for: HDR10
-    /// while the swapchain is in HDR (spartanport: from the start with HDR output).
     vk::SurfaceFormatKHR GetSurfaceFormat() const {
-        return needs_hdr ? SURFACE_FORMAT_HDR : surface_format;
+        return surface_format;
     }
 
     vk::SwapchainKHR GetHandle() const {
@@ -82,11 +75,11 @@ public:
     }
 
     [[nodiscard]] vk::Semaphore GetImageAcquiredSemaphore() const {
-        return (frame_index < image_acquired.size()) ? image_acquired[frame_index] : vk::Semaphore{};
+        return image_acquired[frame_index];
     }
 
     [[nodiscard]] vk::Semaphore GetPresentReadySemaphore() const {
-        return (image_index < present_ready.size()) ? present_ready[image_index] : vk::Semaphore{};
+        return present_ready[image_index];
     }
 
     bool HasHDR() const {
@@ -94,10 +87,6 @@ public:
     }
 
     void SetHDR(bool hdr);
-
-    /// spartanport: VSync from the in-game menu (SpartanSettings::vsync); recreates the swapchain when it
-    /// changed. Present thread only.
-    void UpdateVsync();
 
     bool GetHDR() const {
         return needs_hdr;
@@ -111,10 +100,7 @@ private:
     void FindPresentMode();
 
     /// Sets the surface properties according to device capabilities
-    bool SetSurfaceProperties();
-
-    /// Recreates the Vulkan surface from the window
-    void RecreateSurface();
+    void SetSurfaceProperties();
 
     /// Destroys current swapchain resources
     void Destroy();
@@ -133,7 +119,6 @@ private:
     vk::SurfaceFormatKHR surface_format;
     vk::Format view_format;
     vk::PresentModeKHR present_mode;
-    bool vsync = true; ///< the setting present_mode was chosen for
     vk::Extent2D extent;
     vk::SurfaceTransformFlagBitsKHR transform;
     vk::CompositeAlphaFlagBitsKHR composite_alpha;

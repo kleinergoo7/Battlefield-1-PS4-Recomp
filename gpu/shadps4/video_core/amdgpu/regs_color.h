@@ -4,7 +4,6 @@
 #pragma once
 
 #include "video_core/amdgpu/pixel_format.h"
-#include "video_core/amdgpu/spartanport_msaa.h"
 #include "video_core/amdgpu/tiling.h"
 
 namespace AmdGpu {
@@ -198,8 +197,7 @@ struct ColorBuffer {
     std::array<u32, 2> pad1;
 
     operator bool() const {
-        // spartanport: an unused format value reads as no target (IsUnusedDataFormat).
-        return base_address && info.format && !IsUnusedDataFormat(info.format);
+        return base_address && info.format;
     }
 
     u32 Pitch() const {
@@ -222,12 +220,8 @@ struct ColorBuffer {
         return VAddr(fmask_base_address) << 8;
     }
 
-    u32 GuestNumSamples() const {
-        return 1 << attrib.num_fragments_log2;
-    }
-
     u32 NumSamples() const {
-        return NoMsaa() ? 1 : GuestNumSamples();
+        return 1 << attrib.num_fragments_log2;
     }
 
     u32 BaseSlice() const {
@@ -240,8 +234,7 @@ struct ColorBuffer {
 
     u32 GetColorSliceSize() const {
         const auto num_bytes_per_element = NumBitsPerBlock(DataFormat(info.format)) / 8u;
-        const auto slice_size =
-            num_bytes_per_element * (slice.tile_max + 1) * 64u * GuestNumSamples();
+        const auto slice_size = num_bytes_per_element * (slice.tile_max + 1) * 64u * NumSamples();
         return slice_size;
     }
 

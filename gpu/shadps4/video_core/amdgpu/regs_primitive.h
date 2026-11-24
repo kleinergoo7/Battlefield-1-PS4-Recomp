@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
 
+#include <array>
+
 #include "common/types.h"
-#include "video_core/amdgpu/spartanport_msaa.h"
 
 namespace AmdGpu {
 
@@ -219,6 +220,10 @@ struct ClipUserData {
     u32 data_w;
 };
 
+struct AaSampleMask {
+    std::array<u16, 4> pixel; // X0Y0, X1Y0, X0Y1, X1Y1
+};
+
 struct AaConfig {
     u32 msaa_num_samples : 3;
     u32 : 1;
@@ -231,7 +236,7 @@ struct AaConfig {
     u32 detail_to_exposed_mode : 2;
 
     u32 NumSamples() const {
-        return NoMsaa() ? 1 : 1 << msaa_num_samples;
+        return 1 << msaa_num_samples;
     }
 };
 

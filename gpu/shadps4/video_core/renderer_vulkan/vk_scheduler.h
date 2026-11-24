@@ -4,28 +4,18 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
-#include <cstring>
 #include <condition_variable>
-#include <deque>
-#include <functional>
-#include <memory>
-#include <span>
-#include <source_location>
-#include <utility>
-#include <vector>
 #include <mutex>
 #include <thread>
 #include <queue>
 
-#include "spartanport_toggles.h"
-#include "common/assert.h"
 #include "common/interval_set.h"
 #include "common/unique_function.h"
 #include "video_core/amdgpu/regs_color.h"
 #include "video_core/amdgpu/regs_primitive.h"
 #include "video_core/renderer_vulkan/vk_resource_pool.h"
 #include "video_core/renderer_vulkan/vk_semaphore.h"
+#include "vulkan/vulkan.hpp"
 
 namespace tracy {
 class VkCtxScope;
@@ -175,229 +165,12 @@ struct DynamicState {
     float line_width{};
     bool feedback_loop_enabled{};
 
-    /// Commits the dynamic state to the provided command buffer (a null one only clears the
-    /// flags that committing clears).
+    /// Commits the dynamic state to the provided command buffer.
     void Commit(const Instance& instance, const vk::CommandBuffer& cmdbuf);
-
-    /// spartanport: passes each dirty state change to `emit` as a small command closure holding only
-    /// its own values (recording a copy of the whole state per draw was a hot spot), and clears
-    /// the flags it emitted. Flags whose test is disabled stay dirty, as in Commit.
-    template <typename Emit>
-    void CommitWith(bool depth_bounds_supported, bool color_write_mask_supported,
-                    bool feedback_loop_supported, Emit&& emit) {
-        using Face = vk::StencilFaceFlagBits;
-        if (dirty_state.viewports) {
-            dirty_state.viewports = false;
-            emit([v = viewports](vk::CommandBuffer c) { c.setViewportWithCount(v); });
-        }
-        if (dirty_state.scissors) {
-            dirty_state.scissors = false;
-            emit([v = scissors](vk::CommandBuffer c) { c.setScissorWithCount(v); });
-        }
-        if (dirty_state.depth_test_enabled) {
-            dirty_state.depth_test_enabled = false;
-            emit([v = depth_test_enabled](vk::CommandBuffer c) { c.setDepthTestEnable(v); });
-        }
-        if (dirty_state.depth_write_enabled) {
-            // Must be set in a command buffer even if depth test is disabled.
-            dirty_state.depth_write_enabled = false;
-            emit([v = depth_write_enabled](vk::CommandBuffer c) { c.setDepthWriteEnable(v); });
-        }
-        if (depth_test_enabled && dirty_state.depth_compare_op) {
-            dirty_state.depth_compare_op = false;
-            emit([v = depth_compare_op](vk::CommandBuffer c) { c.setDepthCompareOp(v); });
-        }
-        if (dirty_state.depth_bounds_test_enabled) {
-            dirty_state.depth_bounds_test_enabled = false;
-            if (depth_bounds_supported) {
-                emit([v = depth_bounds_test_enabled](vk::CommandBuffer c) {
-                    c.setDepthBoundsTestEnable(v);
-                });
-            }
-        }
-        if (depth_bounds_test_enabled && dirty_state.depth_bounds) {
-            dirty_state.depth_bounds = false;
-            if (depth_bounds_supported) {
-                emit([lo = depth_bounds_min, hi = depth_bounds_max](vk::CommandBuffer c) {
-                    c.setDepthBounds(lo, hi);
-                });
-            }
-        }
-        if (dirty_state.depth_bias_enabled) {
-            dirty_state.depth_bias_enabled = false;
-            emit([v = depth_bias_enabled](vk::CommandBuffer c) { c.setDepthBiasEnable(v); });
-        }
-        if (depth_bias_enabled && dirty_state.depth_bias) {
-            dirty_state.depth_bias = false;
-            emit([k = depth_bias_constant, clamp = depth_bias_clamp,
-                  slope = depth_bias_slope](vk::CommandBuffer c) { c.setDepthBias(k, clamp, slope); });
-        }
-        if (dirty_state.stencil_test_enabled) {
-            dirty_state.stencil_test_enabled = false;
-            emit([v = stencil_test_enabled](vk::CommandBuffer c) { c.setStencilTestEnable(v); });
-        }
-        if (stencil_test_enabled) {
-            const auto ops = [&](Face face, const StencilOps& o) {
-                emit([face, o](vk::CommandBuffer c) {
-                    c.setStencilOp(face, o.fail_op, o.pass_op, o.depth_fail_op, o.compare_op);
-                });
-            };
-            if (dirty_state.stencil_front_ops && dirty_state.stencil_back_ops &&
-                stencil_front_ops == stencil_back_ops) {
-                ops(Face::eFrontAndBack, stencil_front_ops);
-            } else {
-                if (dirty_state.stencil_front_ops) {
-                    ops(Face::eFront, stencil_front_ops);
-                }
-                if (dirty_state.stencil_back_ops) {
-                    ops(Face::eBack, stencil_back_ops);
-                }
-            }
-            dirty_state.stencil_front_ops = dirty_state.stencil_back_ops = false;
-
-            const auto reference = [&](Face face, u32 v) {
-                emit([face, v](vk::CommandBuffer c) { c.setStencilReference(face, v); });
-            };
-            if (dirty_state.stencil_front_reference && dirty_state.stencil_back_reference &&
-                stencil_front_reference == stencil_back_reference) {
-                reference(Face::eFrontAndBack, stencil_front_reference);
-            } else {
-                if (dirty_state.stencil_front_reference) {
-                    reference(Face::eFront, stencil_front_reference);
-                }
-                if (dirty_state.stencil_back_reference) {
-                    reference(Face::eBack, stencil_back_reference);
-                }
-            }
-            dirty_state.stencil_front_reference = dirty_state.stencil_back_reference = false;
-
-            const auto write_mask = [&](Face face, u32 v) {
-                emit([face, v](vk::CommandBuffer c) { c.setStencilWriteMask(face, v); });
-            };
-            if (dirty_state.stencil_front_write_mask && dirty_state.stencil_back_write_mask &&
-                stencil_front_write_mask == stencil_back_write_mask) {
-                write_mask(Face::eFrontAndBack, stencil_front_write_mask);
-            } else {
-                if (dirty_state.stencil_front_write_mask) {
-                    write_mask(Face::eFront, stencil_front_write_mask);
-                }
-                if (dirty_state.stencil_back_write_mask) {
-                    write_mask(Face::eBack, stencil_back_write_mask);
-                }
-            }
-            dirty_state.stencil_front_write_mask = dirty_state.stencil_back_write_mask = false;
-
-            const auto compare_mask = [&](Face face, u32 v) {
-                emit([face, v](vk::CommandBuffer c) { c.setStencilCompareMask(face, v); });
-            };
-            if (dirty_state.stencil_front_compare_mask && dirty_state.stencil_back_compare_mask &&
-                stencil_front_compare_mask == stencil_back_compare_mask) {
-                compare_mask(Face::eFrontAndBack, stencil_front_compare_mask);
-            } else {
-                if (dirty_state.stencil_front_compare_mask) {
-                    compare_mask(Face::eFront, stencil_front_compare_mask);
-                }
-                if (dirty_state.stencil_back_compare_mask) {
-                    compare_mask(Face::eBack, stencil_back_compare_mask);
-                }
-            }
-            dirty_state.stencil_front_compare_mask = dirty_state.stencil_back_compare_mask = false;
-        }
-        if (dirty_state.primitive_restart_enable) {
-            dirty_state.primitive_restart_enable = false;
-            emit([v = primitive_restart_enable](vk::CommandBuffer c) {
-                c.setPrimitiveRestartEnable(v);
-            });
-        }
-        if (dirty_state.rasterizer_discard_enable) {
-            dirty_state.rasterizer_discard_enable = false;
-            emit([v = rasterizer_discard_enable](vk::CommandBuffer c) {
-                c.setRasterizerDiscardEnable(v);
-            });
-        }
-        if (dirty_state.cull_mode) {
-            dirty_state.cull_mode = false;
-            emit([v = cull_mode](vk::CommandBuffer c) { c.setCullMode(v); });
-        }
-        if (dirty_state.front_face) {
-            dirty_state.front_face = false;
-            emit([v = front_face](vk::CommandBuffer c) { c.setFrontFace(v); });
-        }
-        if (dirty_state.blend_constants) {
-            dirty_state.blend_constants = false;
-            emit([v = blend_constants](vk::CommandBuffer c) { c.setBlendConstants(v.data()); });
-        }
-        if (dirty_state.color_write_masks) {
-            dirty_state.color_write_masks = false;
-            if (color_write_mask_supported) {
-                emit([v = color_write_masks](vk::CommandBuffer c) { c.setColorWriteMaskEXT(0, v); });
-            }
-        }
-        if (dirty_state.line_width) {
-            dirty_state.line_width = false;
-            emit([v = line_width](vk::CommandBuffer c) { c.setLineWidth(v); });
-        }
-        if (dirty_state.feedback_loop_enabled && feedback_loop_supported) {
-            dirty_state.feedback_loop_enabled = false;
-            emit([v = feedback_loop_enabled](vk::CommandBuffer c) {
-                c.setAttachmentFeedbackLoopEnableEXT(v ? vk::ImageAspectFlagBits::eColor
-                                                       : vk::ImageAspectFlagBits::eNone);
-            });
-        }
-    }
-
-    /// spartanport: true when Commit() would record anything. Flags that Commit() defers (their
-    /// test is disabled) do not count.
-    [[nodiscard]] bool AnyDirty() const noexcept {
-        auto pending = dirty_state;
-        if (!depth_test_enabled) {
-            pending.depth_compare_op = false;
-        }
-        if (!depth_bounds_test_enabled) {
-            pending.depth_bounds = false;
-        }
-        if (!depth_bias_enabled) {
-            pending.depth_bias = false;
-        }
-        if (!stencil_test_enabled) {
-            pending.stencil_front_ops = pending.stencil_back_ops = false;
-            pending.stencil_front_reference = pending.stencil_back_reference = false;
-            pending.stencil_front_write_mask = pending.stencil_back_write_mask = false;
-            pending.stencil_front_compare_mask = pending.stencil_back_compare_mask = false;
-        }
-        static constexpr decltype(dirty_state) clean{};
-        return std::memcmp(&pending, &clean, sizeof(pending)) != 0;
-    }
 
     /// Invalidates all dynamic state to be flushed into the next command buffer.
     void Invalidate() {
-        // spartanport: named flags only; padding bits set by a memset made AnyDirty() always true.
-        dirty_state.viewports = true;
-        dirty_state.scissors = true;
-        dirty_state.depth_test_enabled = true;
-        dirty_state.depth_write_enabled = true;
-        dirty_state.depth_compare_op = true;
-        dirty_state.depth_bounds_test_enabled = true;
-        dirty_state.depth_bounds = true;
-        dirty_state.depth_bias_enabled = true;
-        dirty_state.depth_bias = true;
-        dirty_state.stencil_test_enabled = true;
-        dirty_state.stencil_front_ops = true;
-        dirty_state.stencil_front_reference = true;
-        dirty_state.stencil_front_write_mask = true;
-        dirty_state.stencil_front_compare_mask = true;
-        dirty_state.stencil_back_ops = true;
-        dirty_state.stencil_back_reference = true;
-        dirty_state.stencil_back_write_mask = true;
-        dirty_state.stencil_back_compare_mask = true;
-        dirty_state.primitive_restart_enable = true;
-        dirty_state.rasterizer_discard_enable = true;
-        dirty_state.cull_mode = true;
-        dirty_state.front_face = true;
-        dirty_state.blend_constants = true;
-        dirty_state.color_write_masks = true;
-        dirty_state.line_width = true;
-        dirty_state.feedback_loop_enabled = true;
+        std::memset(&dirty_state, 0xFF, sizeof(dirty_state));
     }
 
     void SetViewports(const Viewports& viewports_) {
@@ -575,194 +348,15 @@ struct DynamicState {
     }
 };
 
+using SessionFunc = Common::UniqueFunction<void>;
 using SubmitFunc = Common::UniqueFunction<void, SubmitInfo&>;
-
-/// spartanport: a block of deferred Vulkan commands. Commands are closures placed in
-/// fixed storage (no allocation per command) and run in order on the recording thread.
-class RecordChunk {
-public:
-    static constexpr size_t Capacity = 128 * 1024;
-    // spartanport: keep the consuming command in the chunk that owns its spilled data.
-    static constexpr size_t CommandReserve = 1024;
-
-    // spartanport: oversized groups use chunk-owned storage instead of stopping with exit 23.
-    bool ReserveData(size_t bytes) {
-        const size_t remaining = Capacity - used;
-        if (remaining < CommandReserve) {
-            return false;
-        }
-        if (spill_remaining >= bytes) {
-            return true;
-        }
-        if (bytes <= remaining - CommandReserve) {
-            spill_cursor = nullptr;
-            spill_remaining = 0;
-            return true;
-        }
-        if (bytes <= Capacity - CommandReserve) {
-            return false;
-        }
-        std::unique_ptr<std::byte[]> block{new std::byte[bytes]};
-        spill_cursor = block.get();
-        spill_remaining = bytes;
-        spill_blocks.push_back(std::move(block));
-        return true;
-    }
-
-    /// Returns false (and leaves `func` untouched) when the chunk has no room.
-    template <typename Func>
-    bool Push(Func&& func) {
-        using Command = TypedCommand<std::decay_t<Func>>;
-        static_assert(sizeof(Command) <= Capacity, "recorded command is too large");
-        const size_t offset = (used + alignof(Command) - 1) & ~(alignof(Command) - 1);
-        if (offset + sizeof(Command) > Capacity) {
-            return false;
-        }
-        auto* command = new (storage + offset) Command(std::forward<Func>(func));
-        if (last) {
-            last->next = command;
-        } else {
-            first = command;
-        }
-        last = command;
-        used = offset + sizeof(Command);
-        PrefetchAhead();
-        return true;
-    }
-
-    /// Raw storage in the chunk for a command's variable-length data; null when full.
-    void* Allocate(size_t bytes, size_t align) {
-        // spartanport: preserve alignment within the oversized group's spill block.
-        if (spill_cursor) {
-            void* result = spill_cursor;
-            size_t remaining = spill_remaining;
-            if (!std::align(align, bytes, result, remaining)) {
-                return nullptr;
-            }
-            spill_used += spill_remaining - remaining + bytes;
-            spill_cursor = static_cast<std::byte*>(result) + bytes;
-            spill_remaining = remaining - bytes;
-            return result;
-        }
-        const size_t offset = (used + align - 1) & ~(align - 1);
-        // spartanport: reject oversized inline allocations without overflowing the size check.
-        if (offset > Capacity || bytes > Capacity - offset) {
-            return nullptr;
-        }
-        used = offset + bytes;
-        PrefetchAhead();
-        return storage + offset;
-    }
-
-    void Execute(vk::CommandBuffer cmdbuf) {
-        for (CommandBase* command = first; command;) {
-            CommandBase* const next = command->next;
-            command->Execute(cmdbuf);
-            command->~CommandBase();
-            command = next;
-        }
-        first = last = nullptr;
-        used = 0;
-        // spartanport: release spilled data only after every consuming command has executed.
-        spill_cursor = nullptr;
-        spill_remaining = spill_used = 0;
-        spill_blocks.clear();
-    }
-
-    [[nodiscard]] bool Empty() const noexcept {
-        return first == nullptr;
-    }
-
-    [[nodiscard]] size_t Size() const noexcept {
-        // spartanport: count spilled payloads toward recording batch thresholds.
-        return used + spill_used;
-    }
-
-private:
-    /// The recording thread last read these cache lines: the first write to each has to take
-    /// it back from that core. Requesting ownership a few lines ahead overlaps those
-    /// transfers instead of stalling on each (RecordPrefetch).
-    void PrefetchAhead() const {
-        if (!SpartanToggle::Disabled(SpartanToggle::RecordPrefetch)) {
-            __builtin_prefetch(storage + used + 384, 1, 3);
-            __builtin_prefetch(storage + used + 448, 1, 3);
-        }
-    }
-
-    struct CommandBase {
-        virtual ~CommandBase() = default;
-        virtual void Execute(vk::CommandBuffer cmdbuf) = 0;
-        CommandBase* next{};
-    };
-    template <typename Func>
-    struct TypedCommand final : CommandBase {
-        explicit TypedCommand(Func&& func_) : func{std::move(func_)} {}
-        explicit TypedCommand(const Func& func_) : func{func_} {}
-        void Execute(vk::CommandBuffer cmdbuf) override {
-            func(cmdbuf);
-        }
-        Func func;
-    };
-
-    alignas(64) std::byte storage[Capacity];
-    size_t used = 0;
-    // spartanport: retain oversized groups until this chunk is recycled.
-    std::vector<std::unique_ptr<std::byte[]>> spill_blocks;
-    std::byte* spill_cursor = nullptr;
-    size_t spill_remaining = 0, spill_used = 0;
-    CommandBase* first{};
-    CommandBase* last{};
-};
-
-/// spartanport: the commands of one block of draws, recorded apart and spliced into the command
-/// stream in block order (docs/plans/2026-11-parallel-recording-spec.md).
-struct RecordStream {
-    std::vector<std::unique_ptr<RecordChunk>> chunks;
-    /// The block's own render pass and dynamic state: a block starts with no pass open and every
-    /// dynamic state dirty (Scheduler::BeginStream), and closes its pass at its end.
-    RenderState render_state{};
-    bool is_rendering = false;
-    DynamicState dynamic_state{};
-
-    /// Appends `func`; `acquire()` gives an empty chunk when the last one is full.
-    template <typename Func, typename Acquire>
-    void Push(Func&& func, Acquire&& acquire) {
-        if (chunks.empty() || !chunks.back()->Push(std::forward<Func>(func))) {
-            chunks.push_back(acquire());
-            const bool pushed = chunks.back()->Push(std::forward<Func>(func));
-            ASSERT(pushed);
-        }
-    }
-
-    /// The chunk that keeps `bytes` of data and the command using them (RecordChunk::ReserveData).
-    template <typename Acquire>
-    RecordChunk& Reserve(size_t bytes, Acquire&& acquire) {
-        if (chunks.empty() || !chunks.back()->ReserveData(bytes)) {
-            chunks.push_back(acquire());
-            const bool reserved = chunks.back()->ReserveData(bytes);
-            ASSERT_MSG(reserved, "Cannot reserve {} bytes in an empty recording chunk", bytes);
-        }
-        return *chunks.back();
-    }
-
-    /// Moves the recorded chunks to the end of `out` in order; empty ones go to `recycle`.
-    template <typename Recycle>
-    void Splice(std::vector<std::unique_ptr<RecordChunk>>& out, Recycle&& recycle) {
-        for (auto& chunk : chunks) {
-            if (chunk->Empty()) {
-                recycle(std::move(chunk));
-            } else {
-                out.push_back(std::move(chunk));
-            }
-        }
-        chunks.clear();
-    }
-};
 
 class Scheduler {
 public:
-    /// `threaded_recording`: Vulkan commands passed to Record() are recorded by a worker thread.
-    explicit Scheduler(const Instance& instance, bool threaded_recording = false);
+    static inline std::atomic<u64> direct_recordings{0}; // spartanport compat
+private:
+public:
+    explicit Scheduler(const Instance& instance);
     ~Scheduler();
 
     /// Sends the current execution context to the GPU
@@ -774,16 +368,10 @@ public:
     void Flush();
 
     /// Sends the current execution context to the GPU and waits for it to complete.
-    void Finish(std::source_location caller = std::source_location::current());
-
-    /// spartanport: waits for the work submitted so far but leaves the command buffer being
-    /// recorded open, so a CommandBuffer() the caller holds stays valid (Finish() submits it:
-    /// recording into a submitted buffer crashes AMD's driver).
-    void WaitSubmitted(std::source_location caller = std::source_location::current());
+    void Finish();
 
     /// Waits for the given tick to trigger on the GPU.
-    void Wait(u64 tick, std::source_location caller = std::source_location::current(),
-              u64 submit_ns = 0);
+    void Wait(u64 tick);
 
     /// Attempts to execute operations whose tick the GPU has caught up with.
     void PopPendingOperations();
@@ -794,10 +382,16 @@ public:
     /// Ends current rendering scope.
     void EndRendering();
 
-    /// spartanport: SPARTAN_FULL_BARRIERS=1 records a full memory barrier around every render pass and
-    /// every compute dispatch, to tell a missing barrier from everything else.
-    static bool FullBarriers();
-    static void RecordFullBarrier(vk::CommandBuffer cmdbuf);
+    /// Starts a new session.
+    void BeginSession();
+
+    /// Returns the current command buffer used for uploads.
+    vk::CommandBuffer UploadCommandBuffer();
+
+    /// Sets a function to be called on every session finalization.
+    void SetSessionCallback(SessionFunc&& on_session) {
+        this->on_session = std::move(on_session);
+    }
 
     /// Sets a function to be called on every scheduler submission.
     void SetSubmitCallback(SubmitFunc&& on_submit) {
@@ -806,209 +400,17 @@ public:
 
     /// Returns the current render state.
     const RenderState& GetRenderState() const {
-        return block_stream ? block_stream->render_state : render_state;
+        return render_state;
     }
 
     /// Returns the current pipeline dynamic state tracking.
     DynamicState& GetDynamicState() {
-        return block_stream ? block_stream->dynamic_state : dynamic_state;
+        return dynamic_state;
     }
 
-    /// Returns the current command buffer for recording on the calling thread. With threaded
-    /// recording this first waits until all commands passed to Record() are recorded, then
-    /// records directly (Record() included, so callers may mix both) until the next
-    /// KickRecording() or submission.
-    [[gnu::noinline]] vk::CommandBuffer CommandBuffer() {
-        BreakStream();
-        if (recording_threaded && !direct_mode) {
-            SyncRecording();
-            direct_mode = true;
-            direct_recordings.fetch_add(1, std::memory_order_relaxed);
-            TraceDirectRecording(__builtin_return_address(0));
-        }
-        return current_cmdbuf;
-    }
-
-    /// SPARTAN_RECORDER_TRACE=1: prints the most frequent CommandBuffer() callers every 2000 calls.
-    static void TraceDirectRecording(void* caller);
-
-    /// Records `func(vk::CommandBuffer)` in order with other commands. The closure must own
-    /// everything it uses (capture by value): it may run later on the recording thread.
-    template <typename Func>
-    void Record(Func&& func) {
-        if (block_stream) [[unlikely]] {
-            block_stream->Push(std::forward<Func>(func), [this] { return AcquireChunk(); });
-            return;
-        }
-        if (!recording_threaded || direct_mode) {
-            func(current_cmdbuf);
-            return;
-        }
-        if (SpartanToggle::Disabled(SpartanToggle::ThreadedRecording)) {
-            SyncRecording();
-            direct_mode = true;
-            func(current_cmdbuf);
-            return;
-        }
-        if (!record_chunk->Push(std::forward<Func>(func))) {
-            // spartanport: replace before retiring so recording storage stays valid.
-            RetireChunk();
-            const bool pushed = record_chunk->Push(std::forward<Func>(func));
-            ASSERT(pushed);
-        }
-    }
-
-    // spartanport: acquire the replacement first so reentrant recording during acquisition
-    // still finds a valid chunk, including guest memory faults handled on this thread.
-    void RetireChunk() {
-        auto next = AcquireChunk();
-        full_chunks.push_back(std::exchange(record_chunk, std::move(next)));
-    }
-
-    /// True when Record() defers commands (and RecordData() copies into chunks).
-    [[nodiscard]] bool IsRecordingDeferred() const noexcept {
-        return block_stream || recording_threaded && !direct_mode &&
-               !SpartanToggle::Disabled(SpartanToggle::ThreadedRecording);
-    }
-
-    /// Makes room for `bytes` of RecordData() plus the command that uses them in the current
-    /// chunk: data and command must share a chunk, which is recycled once executed.
-    void ReserveRecordData(size_t bytes) {
-        if (block_stream) [[unlikely]] {
-            block_stream->Reserve(bytes, [this] { return AcquireChunk(); });
-            return;
-        }
-        if (!IsRecordingDeferred()) {
-            return;
-        }
-        // spartanport: spill oversized groups while keeping their consumer in the same chunk.
-        if (!record_chunk->ReserveData(bytes)) {
-            // spartanport: replace before retiring so recording storage stays valid.
-            RetireChunk();
-            const bool reserved = record_chunk->ReserveData(bytes);
-            ASSERT_MSG(reserved, "Cannot reserve {} bytes in an empty recording chunk", bytes);
-        }
-    }
-
-    /// Copies `data` into recording storage that lives until the command that uses it has
-    /// been recorded (the same chunk). With threaded recording off, returns `data` itself.
-    template <typename T>
-    std::span<const T> RecordData(std::span<const T> data) {
-        if (!IsRecordingDeferred() || data.empty()) {
-            return data;
-        }
-        // Room for the data and the command that follows it, so both stay in one chunk.
-        const size_t bytes = data.size_bytes();
-        ReserveRecordData(bytes + alignof(T));
-        RecordChunk& chunk = block_stream ? *block_stream->chunks.back() : *record_chunk;
-        auto* dst = static_cast<T*>(chunk.Allocate(bytes, alignof(T)));
-        std::memcpy(dst, data.data(), bytes);
-        return {dst, data.size()};
-    }
-
-    /// spartanport: until EndStream(), Record() and RecordData() on this thread go to `stream`
-    /// (parallel recording). Needs threaded recording; direct recording is not allowed meanwhile.
-    void BeginStream(RecordStream& stream) {
-        ASSERT(recording_threaded && !direct_mode && !block_stream);
-        stream.is_rendering = false;
-        stream.dynamic_state.Invalidate();
-        block_stream = &stream;
-    }
-    void EndStream() {
-        EndRendering();
-        block_stream = nullptr;
-    }
-    /// Serial blocks (P1): a direct recording or a recording sync inside a block stream splices
-    /// what the block recorded so far, and the rest of the block is recorded directly. A parallel
-    /// resolver has to cut the block before such a draw instead.
-    void BreakStream() {
-        if (block_stream) [[unlikely]] {
-            auto* stream = std::exchange(block_stream, nullptr);
-            if (break_hook) {
-                break_hook(break_context); // the block's barriers, ahead of its commands
-            }
-            SpliceStream(*stream);
-            // The rest of the block goes on directly from where its stream left the pass.
-            is_rendering = stream->is_rendering;
-            render_state = stream->render_state;
-            dynamic_state = stream->dynamic_state;
-            stream_breaks.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-    /// Runs when BreakStream() is about to splice a stream early (the owner's stitch).
-    void SetBreakHook(void (*hook)(void*), void* context) {
-        break_hook = hook;
-        break_context = context;
-    }
-
-    /// Appends `stream`'s commands after everything recorded so far on the owning thread.
-    void SpliceStream(RecordStream& stream) {
-        ASSERT(!block_stream);
-        // The block starts with no pass open, and leaves the dynamic state unknown.
-        EndRendering();
-        if (!record_chunk->Empty()) {
-            RetireChunk();
-        }
-        stream.Splice(full_chunks, [this](std::unique_ptr<RecordChunk> chunk) {
-            std::scoped_lock lk{recorder_mutex};
-            free_chunks.push_back(std::move(chunk));
-        });
-        dynamic_state.Invalidate();
-    }
-
-    /// Hands recorded commands to the recording thread. Called at points where no caller holds
-    /// the raw command buffer (end of draws and dispatches); small batches are kept.
-    void KickRecording(bool force = false);
-
-    /// Waits until every recorded command is in the command buffer.
-    void SyncRecording();
-
-    /// spartanport: guest memory copies on the recording thread (small ones, RecordHostCopy) or the
-    /// copy threads (SpartanCopy::Async) must be done before the guest learns the GPU is past them
-    /// (it may then rewrite the memory, e.g. UI vertices: flickering) and before the
-    /// submission that reads them. Waits for all.
-    void WaitHostCopies();
-
-    /// Runs `copy` on the recording thread in order with the commands (the thread spins for
-    /// work anyway, so small copies cost no wakeup); WaitHostCopies() covers it.
-    template <typename Func>
-    void RecordHostCopy(Func&& copy) {
-        // Counted, not numbered: block streams recorded in parallel issue copies out of order.
-        host_copies_issued.fetch_add(1, std::memory_order_relaxed);
-        Record([copy = std::forward<Func>(copy), this](vk::CommandBuffer) {
-            copy();
-            host_copies_done.fetch_add(1, std::memory_order_release);
-        });
-    }
-
-    /// spartanport: runs `signal` once the guest memory copies issued so far are done, without
-    /// waiting here: the recording thread reaches it after the copies queued before it and hands
-    /// it to the copy threads' completion (SpartanCopy::AfterCopies).
-    void SignalAfterHostCopies(std::function<void()> signal);
-
-    /// spartanport: before a guest-visible write that is not deferred (WriteData, end-of-shader
-    /// fences, flip): waits until every signal handed to SignalAfterHostCopies ran, so that
-    /// the write cannot overtake an earlier fence. Otherwise the guest, seeing the later value,
-    /// may free memory the earlier fence then writes into (corrupted heap, guest fault).
-    void WaitDeferredSignals();
-
-    /// Whether a render pass with exactly this state is open.
-    [[nodiscard]] bool IsRenderingWith(const RenderState& state) const {
-        return block_stream ? block_stream->is_rendering && block_stream->render_state == state
-                            : is_rendering && render_state == state;
-    }
-
-    /// Whether BeginRendering(state) would start a new render pass.
-    [[nodiscard]] bool WillBeginRendering(const RenderState& state) const {
-        return !IsRenderingWith(state);
-    }
-
-    /// CommandBuffer() calls that waited for a recording thread (SPARTAN_FRAME_STATS).
-    static inline std::atomic<u64> direct_recordings{0};
-    /// CommandBuffer() calls that ended a block stream early (SPARTAN_FRAME_STATS).
-    static inline std::atomic<u64> stream_breaks{0};
-    [[nodiscard]] static bool InStream() noexcept {
-        return block_stream != nullptr;
+    /// Returns the current command buffer.
+    vk::CommandBuffer CommandBuffer() const {
+        return sessions.back().primary;
     }
 
     /// Returns the current command buffer tick.
@@ -1034,8 +436,8 @@ public:
     /// Will be run when submitting or calling PopPendingOperations.
     void DeferOperation(Common::UniqueFunction<void>&& func) {
         std::unique_lock lk(pending_ops_mutex);
+        pending_ops_empty.store(false, std::memory_order_relaxed);
         pending_ops.emplace(std::move(func), CurrentTick());
-        num_pending_ops.fetch_add(1, std::memory_order_release);
     }
 
     /// Defers an operation until the gpu has reached the current cpu tick.
@@ -1051,11 +453,7 @@ public:
     static std::mutex submit_mutex;
 
 private:
-    void AllocateWorkerCommandBuffers();
-
-    std::unique_ptr<RecordChunk> AcquireChunk();
-
-    void RecorderThread(std::stop_token stoken);
+    void EndSession();
 
     void SubmitExecution(SubmitInfo& info);
 
@@ -1066,48 +464,27 @@ private:
     Semaphore work_semaphore;
     CommandPool command_pool;
     DynamicState dynamic_state;
+    SessionFunc on_session{};
     SubmitFunc on_submit{};
-    vk::CommandBuffer current_cmdbuf;
+    struct Session {
+        vk::CommandBuffer upload{};
+        vk::CommandBuffer primary{};
+    };
+    std::vector<Session> sessions;
     std::condition_variable_any event_cv;
     struct PendingOp {
         Common::UniqueFunction<void> callback;
         u64 gpu_tick;
     };
     std::queue<PendingOp> pending_ops;
+    std::atomic<bool> pending_ops_empty{true};
     std::recursive_mutex pending_ops_mutex;
-    u32 pending_polls = 0; // spartanport
-    std::atomic<u32> num_pending_ops{0}; ///< spartanport: pending_ops.size(), checked without the lock
     std::queue<PendingOp> priority_pending_ops;
     std::mutex priority_pending_ops_mutex;
     std::condition_variable_any priority_pending_ops_cv;
     std::jthread priority_pending_ops_thread;
     RenderState render_state;
     bool is_rendering = false;
-    // spartanport: threaded recording
-    std::unique_ptr<RecordChunk> record_chunk;
-    std::vector<std::unique_ptr<RecordChunk>> full_chunks;
-    std::mutex recorder_mutex;
-    std::condition_variable_any recorder_cv;
-    std::condition_variable_any recorder_idle_cv;
-    std::deque<std::unique_ptr<RecordChunk>> recorder_queue;
-    std::vector<std::unique_ptr<RecordChunk>> free_chunks;
-    bool recorder_busy = false;
-    std::atomic<size_t> queued_chunks{0}; ///< recorder_queue.size() for lock-free polling
-    bool recorder_sleeping = false; ///< waiting on recorder_cv (guarded by recorder_mutex)
-    bool direct_mode = false; ///< the command buffer is recorded on the caller's thread
-    std::atomic<u64> host_copies_issued{0};
-    std::atomic<u64> host_copies_done{0};
-    std::atomic<u64> deferred_signals_issued{0}; ///< by the thread recording (A or B)
-    std::shared_ptr<std::atomic<u64>> deferred_signals_done =
-        std::make_shared<std::atomic<u64>>(0);
-    // spartanport: whether recorder_thread runs, read on every Record(). std::jthread::joinable()
-    // compares thread ids, which on Windows (libc++ over winpthreads) costs two system calls.
-    bool recording_threaded{false};
-    /// The block stream this thread records into (BeginStream), or null.
-    static inline thread_local RecordStream* block_stream = nullptr;
-    void (*break_hook)(void*) = nullptr;
-    void* break_context = nullptr;
-    std::jthread recorder_thread;
     tracy::VkCtxScope* profiler_scope{};
 };
 

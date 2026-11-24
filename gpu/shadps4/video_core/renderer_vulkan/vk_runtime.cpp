@@ -1,15 +1,11 @@
 // SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <boost/container/small_vector.hpp>
 #include "common/alignment.h"
-#include "spartanport_toggles.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
-#include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
-#include "video_core/renderer_vulkan/vk_scene_resolution.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/blit_helper.h"
 #include "video_core/texture_cache/image.h"
@@ -18,24 +14,14 @@
 
 namespace Vulkan {
 
-// spartanport: bound copy payloads to 64 KiB per command so large batches fit recording chunks.
-template <typename T, typename Record>
-static void RecordInSlices(Scheduler& scheduler, std::span<const T> regions, Record&& record) {
-    constexpr std::size_t PerCommand = 64 * 1024 / sizeof(T);
-    for (std::size_t at = 0; at < regions.size(); at += PerCommand) {
-        record(
-            scheduler.RecordData(regions.subspan(at, std::min(PerCommand, regions.size() - at))));
-    }
-}
-
 static vk::ImageType ConvertImageType(AmdGpu::ImageType type) noexcept {
     switch (type) {
     case AmdGpu::ImageType::Color1D:
     case AmdGpu::ImageType::Color1DArray:
-        return vk::ImageType::e1D;
     case AmdGpu::ImageType::Color2D:
     case AmdGpu::ImageType::Color2DMsaa:
     case AmdGpu::ImageType::Color2DArray:
+    case AmdGpu::ImageType::Cube:
         return vk::ImageType::e2D;
     case AmdGpu::ImageType::Color3D:
         return vk::ImageType::e3D;
@@ -109,6 +95,34 @@ static u32 BufferImageCopySize(const vk::BufferImageCopy& copy, const vk::Format
            width_in_blocks * block_size;
 }
 
+static u64 ImageBufferCopySize(const VideoCore::Image* src, const VideoCore::Image* dst) {
+    const u32 num_mips = std::min(src->info.resources.levels, dst->info.resources.levels);
+    const u32 num_layers = std::min(src->info.resources.layers, dst->info.resources.layers);
+    vk::BufferImageCopy copy{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource{
+            .aspectMask = src->aspect_mask & ~vk::ImageAspectFlagBits::eStencil,
+            .mipLevel = 0u,
+            .baseArrayLayer = 0,
+            .layerCount = num_layers,
+        },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {src->info.size.width, src->info.size.height, src->info.size.depth},
+    };
+    u64 copy_size = BufferImageCopySize(copy, src->info.pixel_format);
+    for (u32 mip = 1; mip < num_mips; ++mip) {
+        copy.imageSubresource.mipLevel = mip;
+        copy.imageExtent = vk::Extent3D{std::max(src->info.size.width >> mip, 1u),
+                                        std::max(src->info.size.height >> mip, 1u),
+                                        std::max(src->info.size.depth >> mip, 1u)};
+        copy_size = Common::AlignUp(copy_size, 16) +
+                    BufferImageCopySize(copy, src->info.pixel_format);
+    }
+    return copy_size;
+}
+
 Runtime::Runtime(const Instance& instance_, Scheduler& scheduler_)
     : instance{instance_}, scheduler{scheduler_}, staging_pool{instance_, scheduler_} {
     blit_helper = std::make_unique<VideoCore::BlitHelper>(instance, scheduler);
@@ -126,48 +140,18 @@ void Runtime::CopyBuffer(const VideoCore::Buffer* src, const VideoCore::Buffer* 
                          std::span<const vk::BufferCopy> copies) {
     scheduler.EndRendering();
 
-    // spartanport: many regions (HLE copy shaders) are tracked as one bounding range per buffer:
-    // conservative for barriers, and two tree lookups instead of two per region.
-    const bool bounded = copies.size() > 4;
-    u64 src_min = ~0ULL, src_max = 0, dst_min = ~0ULL, dst_max = 0;
-    if (bounded) {
-        for (const auto& copy : copies) {
-            src_min = std::min<u64>(src_min, copy.srcOffset);
-            src_max = std::max<u64>(src_max, copy.srcOffset + copy.size);
-            dst_min = std::min<u64>(dst_min, copy.dstOffset);
-            dst_max = std::max<u64>(dst_max, copy.dstOffset + copy.size);
-        }
-    }
-
     bool needs_flush{};
-    if (bounded) {
-        needs_flush = IsBufferAccessed(src, src_min, src_max - src_min) ||
-                      IsBufferAccessed(dst, dst_min, dst_max - dst_min, true);
-    } else {
-        for (const auto& copy : copies) {
-            needs_flush |= IsBufferAccessed(src, copy.srcOffset, copy.size);
-            needs_flush |= IsBufferAccessed(dst, copy.dstOffset, copy.size, true);
-        }
+    for (const auto& copy : copies) {
+        needs_flush |= IsBufferAccessed(src, copy.srcOffset, copy.size);
+        needs_flush |= IsBufferAccessed(dst, copy.dstOffset, copy.size, true);
     }
     if (needs_flush) {
         FlushBarriers();
     }
 
-    // spartanport: split large buffer copy lists without changing their region order.
-    RecordInSlices(scheduler, copies, [&](std::span<const vk::BufferCopy> regions) {
-        scheduler.Record([src_handle = src->Handle(), dst_handle = dst->Handle(),
-                          regions](vk::CommandBuffer cmdbuf) {
-            cmdbuf.copyBuffer(src_handle, dst_handle, regions.size(), regions.data());
-        });
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyBuffer(src->Handle(), dst->Handle(), copies);
 
-    if (bounded) {
-        AccessBuffer(src, src_min, src_max - src_min, vk::PipelineStageFlagBits2::eCopy,
-                     vk::AccessFlagBits2::eTransferRead);
-        AccessBuffer(dst, dst_min, dst_max - dst_min, vk::PipelineStageFlagBits2::eCopy,
-                     vk::AccessFlagBits2::eTransferWrite);
-        return;
-    }
     for (const auto& copy : copies) {
         AccessBuffer(src, copy.srcOffset, copy.size, vk::PipelineStageFlagBits2::eCopy,
                      vk::AccessFlagBits2::eTransferRead);
@@ -183,9 +167,8 @@ void Runtime::FillBuffer(const VideoCore::Buffer* dst, u64 offset, u64 size, u32
         FlushBarriers();
     }
 
-    scheduler.Record([handle = dst->Handle(), offset, size, value](vk::CommandBuffer cmdbuf) {
-        cmdbuf.fillBuffer(handle, offset, size, value);
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.fillBuffer(dst->Handle(), offset, size, value);
 
     AccessBuffer(dst, offset, size, vk::PipelineStageFlagBits2::eClear,
                  vk::AccessFlagBits2::eTransferWrite);
@@ -198,9 +181,8 @@ void Runtime::InlineData(VideoCore::Buffer* dst, u64 offset, u32 value) {
         FlushBarriers();
     }
 
-    scheduler.Record([handle = dst->Handle(), offset, value](vk::CommandBuffer cmdbuf) {
-        cmdbuf.updateBuffer(handle, offset, sizeof(value), &value);
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.updateBuffer(dst->Handle(), offset, sizeof(value), &value);
 
     AccessBuffer(dst, offset, sizeof(value), vk::PipelineStageFlagBits2::eCopy,
                  vk::AccessFlagBits2::eTransferWrite);
@@ -209,117 +191,19 @@ void Runtime::InlineData(VideoCore::Buffer* dst, u64 offset, u32 value) {
 bool Runtime::Transit(VideoCore::Image* image, vk::ImageLayout dst_layout,
                       vk::PipelineStageFlags2 dst_stage, vk::AccessFlags2 dst_access,
                       std::optional<VideoCore::SubresourceRange> subres_range) {
-    BeforeImageAccess();
-    if (scene_targets) scene_targets->NativeAccess(*image, dst_access);
-    if (auto* block = block_barriers) [[unlikely]] {
-        auto it = std::ranges::find_if(block->images, [&](const auto& entry) {
-            return entry.first == image && entry.second.backing == image->backing;
-        });
-        if (it == block->images.end()) {
-            block->images.emplace_back(image, VideoCore::Image::BlockShadow{.backing = image->backing});
-            it = block->images.end() - 1;
-        }
-        const size_t prev = block->image_barriers.size();
-        image->GetBlockBarriers(it->second, block->image_barriers, dst_layout, dst_access, dst_stage,
-                                subres_range);
-        return block->image_barriers.size() != prev;
-    }
     const size_t prev_num_barriers = static_cast<size_t>(image_barriers.size());
-    image->GetBarriers(image_barriers, dst_layout, dst_access, dst_stage, subres_range);
+    if (dst_access & vk::AccessFlagBits2::eTransferWrite) {
+        image->InvalidateSubrects();
+    }
+    image->GetBarriers(image_barriers, *image->backing, dst_layout, dst_access, dst_stage,
+                       subres_range);
     return image_barriers.size() != prev_num_barriers;
-}
-
-void Runtime::BeginBlock(BlockBarriers& block) {
-    block.barrier_tracker.Clear();
-    block.image_barriers.clear();
-    block.memory_barrier = vk::MemoryBarrier2{};
-    block.images.clear();
-    block.wrote = false;
-    block_barriers = &block;
-}
-
-void Runtime::EndBlock() {
-    block_barriers = nullptr;
-}
-
-void Runtime::StitchBlock(BlockBarriers& block) {
-    ASSERT(!block_barriers);
-    // What was recorded before the block is ordered before it: its pending barriers first, then
-    // a memory barrier when an earlier block wrote buffers (the block's tracker started empty)
-    // and the transitions from the real layouts to what the block's first accesses need.
-    FlushBarriers();
-    image_barriers.clear();
-    for (auto& [image, shadow] : block.images) {
-        if (shadow.backing == image->backing) {
-            image->StitchBlock(shadow, image_barriers);
-        }
-    }
-    if (std::exchange(blocks_wrote, false)) {
-        memory_barrier.srcStageMask = vk::PipelineStageFlagBits2::eAllCommands;
-        memory_barrier.srcAccessMask = vk::AccessFlagBits2::eMemoryWrite;
-    }
-    memory_barrier.dstStageMask = vk::PipelineStageFlagBits2::eAllCommands;
-    memory_barrier.dstAccessMask =
-        vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
-    FlushBarriers();
-    blocks_wrote = block.wrote;
-    memory_barrier.dstStageMask = vk::PipelineStageFlagBits2::eNone;
-    memory_barrier.dstAccessMask = vk::AccessFlagBits2::eNone;
-    block.images.clear();
-    // Barriers the block left pending (a stream ended early) follow its commands: its end state
-    // already counts them.
-    image_barriers.insert(image_barriers.end(), block.image_barriers.begin(),
-                          block.image_barriers.end());
-    memory_barrier.srcStageMask |= block.memory_barrier.srcStageMask;
-    memory_barrier.srcAccessMask |= block.memory_barrier.srcAccessMask;
-    block.image_barriers.clear();
-    block.memory_barrier = vk::MemoryBarrier2{};
-}
-
-bool Runtime::InBlock() const {
-    return block_barriers != nullptr;
-}
-
-vk::ImageLayout Runtime::Layout(const VideoCore::Image& image) const {
-    if (const auto* block = block_barriers) [[unlikely]] {
-        for (const auto& [shadowed, shadow] : block->images) {
-            if (shadowed == &image && shadow.backing == image.backing) {
-                return image.BlockLayout(shadow);
-            }
-        }
-    }
-    return image.backing->state.layout;
-}
-
-Runtime::TransferMark::TransferMark(Runtime& runtime, const char* what,
-                                    const VideoCore::Image& image) {
-    profiler = GpuProfiler::Get();
-    if (!profiler || !profiler->Records(&runtime.scheduler)) {
-        profiler = nullptr;
-        return;
-    }
-    resume = profiler->Current();
-    const auto& info = image.info;
-    const u64 key = (u64(reinterpret_cast<uintptr_t>(what)) << 20) ^
-                    (u64(info.pixel_format) << 40) ^ (u64(info.size.width) << 16) ^
-                    info.size.height ^ 0x7A5Full;
-    profiler->Mark(key, [&] {
-        return fmt::format("{} {} {}x{}", what, vk::to_string(info.pixel_format),
-                           info.size.width, info.size.height);
-    });
-}
-
-Runtime::TransferMark::~TransferMark() {
-    if (profiler && resume) {
-        profiler->Resume(resume);
-    }
 }
 
 void Runtime::UploadImage(VideoCore::Image* dst, const VideoCore::Buffer* src,
                           std::span<const vk::BufferImageCopy> upload_copies) {
     SetBackingSamples(dst, dst->info.num_samples, false);
     scheduler.EndRendering();
-    const TransferMark mark{*this, "image upload", *dst};
 
     bool needs_flush =
         Transit(dst, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits2::eCopy,
@@ -332,14 +216,9 @@ void Runtime::UploadImage(VideoCore::Image* dst, const VideoCore::Buffer* src,
         FlushBarriers();
     }
 
-    // spartanport: keep image upload region payloads within the per-command recording budget.
-    RecordInSlices(scheduler, upload_copies, [&](std::span<const vk::BufferImageCopy> regions) {
-        scheduler.Record([src_handle = src->Handle(), image = dst->GetImage(),
-                          regions](vk::CommandBuffer cmdbuf) {
-            cmdbuf.copyBufferToImage(src_handle, image, vk::ImageLayout::eTransferDstOptimal,
-                                     regions.size(), regions.data());
-        });
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyBufferToImage(src->Handle(), dst->GetImage(), vk::ImageLayout::eTransferDstOptimal,
+                             upload_copies);
 
     for (const auto& copy : upload_copies) {
         const auto copy_size = BufferImageCopySize(copy, dst->info.pixel_format);
@@ -350,38 +229,10 @@ void Runtime::UploadImage(VideoCore::Image* dst, const VideoCore::Buffer* src,
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
 }
 
-void Runtime::CopyAliasImage(VideoCore::Image* src, VideoCore::Image* dst,
-                             const vk::Extent3D& extent) {
-    SetBackingSamples(src, src->info.num_samples);
-    SetBackingSamples(dst, dst->info.num_samples);
-    scheduler.EndRendering();
-    const TransferMark mark{*this, "image alias copy", *dst};
-    const u32 layers = std::min(src->info.resources.layers, dst->info.resources.layers);
-    const vk::ImageCopy region{
-        .srcSubresource{.aspectMask = vk::ImageAspectFlagBits::eColor, .layerCount = layers},
-        .dstSubresource{.aspectMask = vk::ImageAspectFlagBits::eColor, .layerCount = layers},
-        .extent = extent,
-    };
-    bool needs_flush =
-        Transit(src, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits2::eCopy,
-                vk::AccessFlagBits2::eTransferRead);
-    needs_flush |= Transit(dst, vk::ImageLayout::eTransferDstOptimal,
-                           vk::PipelineStageFlagBits2::eCopy, vk::AccessFlagBits2::eTransferWrite);
-    if (needs_flush) {
-        FlushBarriers();
-    }
-    scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                      region](vk::CommandBuffer cmdbuf) {
-        cmdbuf.copyImage(src_image, vk::ImageLayout::eTransferSrcOptimal, dst_image,
-                         vk::ImageLayout::eTransferDstOptimal, region);
-    });
-}
-
 void Runtime::DownloadImage(VideoCore::Image* src, const VideoCore::Buffer* dst,
                             std::span<const vk::BufferImageCopy> download_copies) {
     SetBackingSamples(src, src->info.num_samples);
     scheduler.EndRendering();
-    const TransferMark mark{*this, "image download", *src};
 
     bool needs_flush =
         Transit(src, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits2::eCopy,
@@ -394,14 +245,9 @@ void Runtime::DownloadImage(VideoCore::Image* src, const VideoCore::Buffer* dst,
         FlushBarriers();
     }
 
-    // spartanport: image downloads need the same bounded recording payload as uploads.
-    RecordInSlices(scheduler, download_copies, [&](std::span<const vk::BufferImageCopy> regions) {
-        scheduler.Record(
-            [image = src->GetImage(), buffer = dst->Handle(), regions](vk::CommandBuffer cmdbuf) {
-                cmdbuf.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer,
-                                         regions.size(), regions.data());
-            });
-    });
+    auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyImageToBuffer(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal, dst->Handle(),
+                             download_copies);
 
     for (const auto& copy : download_copies) {
         const auto copy_size = BufferImageCopySize(copy, src->info.pixel_format);
@@ -430,7 +276,7 @@ void Runtime::CopyImage(VideoCore::Image* src, VideoCore::Image* dst) {
     SetBackingSamples(dst, dst->info.num_samples, false);
     SetBackingSamples(src, src->info.num_samples);
 
-    boost::container::small_vector<vk::ImageCopy, 8> regions;
+    SmallVector<vk::ImageCopy, 8> regions;
 
     const vk::ImageAspectFlags src_aspect = src->aspect_mask & ~vk::ImageAspectFlagBits::eStencil;
     const vk::ImageAspectFlags dst_aspect = dst->aspect_mask & ~vk::ImageAspectFlagBits::eStencil;
@@ -500,17 +346,61 @@ void Runtime::CopyImage(VideoCore::Image* src, VideoCore::Image* dst) {
         FlushBarriers();
     }
 
-    scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                      regions](vk::CommandBuffer cmdbuf) {
-        cmdbuf.copyImage(src_image, vk::ImageLayout::eTransferSrcOptimal, dst_image,
-                         vk::ImageLayout::eTransferDstOptimal, regions);
-    });
+    auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyImage(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal, dst->GetImage(),
+                     vk::ImageLayout::eTransferDstOptimal, regions);
 
     dst->flags |= (src->flags & VideoCore::ImageFlagBits::GpuModified);
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
 }
 
-void Runtime::CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst) {
+VideoCore::ImageView& Runtime::FindSubrectView(VideoCore::Image& image,
+                                               const VideoCore::ImageInfo& info,
+                                               const VideoCore::ImageViewInfo& view_info) {
+    ASSERT(info.IsSubrectOf(image.info));
+    SetBackingSamples(&image, info.num_samples);
+
+    auto create_info = image.backing->image.image_ci;
+    create_info.extent = vk::Extent3D{info.size.width, info.size.height, 1};
+    auto it = std::ranges::find_if(image.backing_images, [&](const auto& backing) {
+        return backing.image.image_ci.extent == create_info.extent &&
+               backing.num_samples == info.num_samples;
+    });
+    auto& crop =
+        it != image.backing_images.end() ? *it : image.AddBacking(create_info, info.num_samples);
+    if (!crop.subrect_valid) {
+        scheduler.EndRendering();
+        const auto source_state = image.backing->state;
+        Transit(&image, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits2::eCopy,
+                vk::AccessFlagBits2::eTransferRead);
+        image.GetBarriers(image_barriers, crop, vk::ImageLayout::eTransferDstOptimal,
+                          vk::AccessFlagBits2::eTransferWrite, vk::PipelineStageFlagBits2::eCopy);
+        FlushBarriers();
+
+        const vk::ImageCopy copy{
+            .srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+            .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+            .extent = create_info.extent,
+        };
+        scheduler.CommandBuffer().copyImage(image.GetImage(), vk::ImageLayout::eTransferSrcOptimal,
+                                            crop.image, vk::ImageLayout::eTransferDstOptimal, copy);
+
+        // A full-size view can already be bound in the same draw.
+        if (image.binding.is_bound && source_state.layout != vk::ImageLayout::eUndefined) {
+            Transit(&image, source_state.layout, source_state.pl_stage, source_state.access_mask);
+        }
+        image.GetBarriers(image_barriers, crop, vk::ImageLayout::eShaderReadOnlyOptimal,
+                          vk::AccessFlagBits2::eShaderRead,
+                          vk::PipelineStageFlagBits2::eAllCommands);
+        FlushBarriers();
+        crop.subrect_valid = true;
+    }
+
+    return image.FindView(view_info, crop);
+}
+
+void Runtime::CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst,
+                                  const VideoCore::Buffer* buffer, u64 offset) {
     const u32 num_mips = std::min(src->info.resources.levels, dst->info.resources.levels);
     const u32 num_layers = std::min(src->info.resources.layers, dst->info.resources.layers);
 
@@ -518,7 +408,7 @@ void Runtime::CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst) 
     SetBackingSamples(src, src->info.num_samples);
 
     vk::BufferImageCopy buffer_copy = {
-        .bufferOffset = 0,
+        .bufferOffset = offset,
         .bufferRowLength = 0,
         .bufferImageHeight = 0,
         .imageSubresource{
@@ -530,36 +420,19 @@ void Runtime::CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst) 
         .imageOffset = {0, 0, 0},
         .imageExtent = {src->info.size.width, src->info.size.height, src->info.size.depth},
     };
-    // spartanport: copy the shared mips and layers, so a depth/colour copy without
-    // maintenance8 also handles images whose mip or layer counts differ.
-    // spartanport: the download and the upload share one layout, so each mip takes the larger of
-    // the source and destination texel sizes (a D16 source can upload into D32S8 depth).
-    const auto footprint = [&](const vk::BufferImageCopy& copy) {
-        return std::max(BufferImageCopySize(copy, src->info.pixel_format),
-                        BufferImageCopySize(copy, dst->info.pixel_format));
-    };
-    u64 copy_size = footprint(buffer_copy);
-    boost::container::small_vector<vk::BufferImageCopy, 8> download_copies;
-    download_copies.push_back(buffer_copy);
+    u64 copy_size = BufferImageCopySize(buffer_copy, src->info.pixel_format);
+    SmallVector<vk::BufferImageCopy, 8> buffer_copies;
+    buffer_copies.push_back(buffer_copy);
     for (u32 mip = 1; mip < num_mips; ++mip) {
         auto mip_copy = buffer_copy;
-        mip_copy.bufferOffset = Common::AlignUp(copy_size, 16);
+        mip_copy.bufferOffset = Common::AlignUp(offset + copy_size, 16);
         mip_copy.imageSubresource.mipLevel = mip;
         mip_copy.imageExtent = vk::Extent3D{std::max(src->info.size.width >> mip, 1u),
                                             std::max(src->info.size.height >> mip, 1u),
                                             std::max(src->info.size.depth >> mip, 1u)};
         copy_size =
-            mip_copy.bufferOffset + footprint(mip_copy);
-        download_copies.push_back(mip_copy);
-    }
-    // spartanport: the staging range is sized to every copied mip. A fixed 128 MiB range was
-    // written past by a depth image larger than that (the D32/D32S8 copies route here).
-    const auto staging =
-        staging_pool.Request(copy_size, VideoCore::MemoryType::DeviceLocal, 16);
-    const auto* buffer = staging.buffer;
-    const u64 offset = staging.offset;
-    for (auto& copy : download_copies) {
-        copy.bufferOffset += offset;
+            mip_copy.bufferOffset - offset + BufferImageCopySize(mip_copy, src->info.pixel_format);
+        buffer_copies.push_back(mip_copy);
     }
 
     scheduler.EndRendering();
@@ -574,29 +447,27 @@ void Runtime::CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst) 
         FlushBarriers();
     }
 
-    auto upload_copies = download_copies;
-    for (auto& copy : upload_copies) {
+    auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyImageToBuffer(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal,
+                             buffer->Handle(), buffer_copies);
+
+    const vk::MemoryBarrier2 post_copy_barrier = {
+        .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+        .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+        .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
+        .dstAccessMask = vk::AccessFlagBits2::eTransferRead,
+    };
+    cmdbuf.pipelineBarrier2(vk::DependencyInfo{
+        .dependencyFlags = vk::DependencyFlagBits::eByRegion,
+        .memoryBarrierCount = 1u,
+        .pMemoryBarriers = &post_copy_barrier,
+    });
+
+    for (auto& copy : buffer_copies) {
         copy.imageSubresource.aspectMask = dst->aspect_mask & ~vk::ImageAspectFlagBits::eStencil;
     }
-    scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                      handle = buffer->Handle(), download_copies = std::move(download_copies),
-                      upload_copies = std::move(upload_copies)](vk::CommandBuffer cmdbuf) {
-        cmdbuf.copyImageToBuffer(src_image, vk::ImageLayout::eTransferSrcOptimal, handle,
-                                 download_copies);
-        const vk::MemoryBarrier2 post_copy_barrier = {
-            .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
-            .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
-            .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
-            .dstAccessMask = vk::AccessFlagBits2::eTransferRead,
-        };
-        cmdbuf.pipelineBarrier2(vk::DependencyInfo{
-            .dependencyFlags = vk::DependencyFlagBits::eByRegion,
-            .memoryBarrierCount = 1u,
-            .pMemoryBarriers = &post_copy_barrier,
-        });
-        cmdbuf.copyBufferToImage(handle, dst_image, vk::ImageLayout::eTransferDstOptimal,
-                                 upload_copies);
-    });
+    cmdbuf.copyBufferToImage(buffer->Handle(), dst->GetImage(),
+                             vk::ImageLayout::eTransferDstOptimal, buffer_copies);
 
     dst->flags |= (src->flags & VideoCore::ImageFlagBits::GpuModified);
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
@@ -606,7 +477,7 @@ void Runtime::CopyMip(VideoCore::Image* src, VideoCore::Image* dst, u32 mip, u32
     const auto dst_dim = dst->info.props.is_block ? 2 : 0;
     const auto mip_block_w = std::max(dst->info.size.width >> (mip + dst_dim), 1u);
     const auto mip_block_h = std::max(dst->info.size.height >> (mip + dst_dim), 1u);
-    const auto mip_block_p = std::max(dst->info.mips_layout[mip].pitch >> dst_dim, 1u);
+    const auto mip_block_p = std::max<u32>(dst->info.mips_layout[mip].pitch >> dst_dim, 1u);
 
     const auto src_dim = src->info.props.is_block ? 2 : 0;
     ASSERT(mip_block_w == (src->info.size.width >> src_dim));
@@ -646,31 +517,28 @@ void Runtime::CopyMip(VideoCore::Image* src, VideoCore::Image* dst, u32 mip, u32
         FlushBarriers();
     }
 
-    scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                      image_copy](vk::CommandBuffer cmdbuf) {
-        cmdbuf.copyImage(src_image, vk::ImageLayout::eTransferSrcOptimal, dst_image,
-                         vk::ImageLayout::eTransferDstOptimal, image_copy);
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyImage(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal, dst->GetImage(),
+                     vk::ImageLayout::eTransferDstOptimal, image_copy);
 
     dst->flags |= (src->flags & VideoCore::ImageFlagBits::GpuModified);
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
 }
 
 void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst) {
-    // spartanport: with SPARTAN_NO_MSAA a guest multisampled depth target is single-sampled on the host; a
-    // colour image aliasing it still holds the samples as channels, so sample 0 is channel 0.
-    const bool guest_ms_depth = dst->info.props.is_depth && dst->info.guest_samples > 1;
-    if (src->info.num_samples == 1 && dst->info.num_samples == 1 && !guest_ms_depth) {
-        // spartanport: differing depth/stencil aspects require the intermediate buffer copy.
+    if (src->info.num_samples == 1 && dst->info.num_samples == 1) {
         if ((instance.IsMaintenance8Supported() ||
              src->info.props.is_depth == dst->info.props.is_depth) &&
             src->aspect_mask == dst->aspect_mask) {
             CopyImage(src, dst);
         } else {
             // Perform depth from/to color copy using the intermediate copy buffer.
-            CopyImageWithBuffer(src, dst);
+            const u64 copy_size = ImageBufferCopySize(src, dst);
+            const auto copy_ref =
+                staging_pool.Request(copy_size, VideoCore::MemoryType::DeviceLocal);
+            CopyImageWithBuffer(src, dst, copy_ref.buffer, copy_ref.offset);
         }
-    } else if (src->info.num_samples == 1 && (dst->info.num_samples > 1 || guest_ms_depth) &&
+    } else if (src->info.num_samples == 1 && dst->info.num_samples > 1 &&
                dst->info.props.is_depth) {
         // Perform a rendering pass to transfer the channels of source as samples in dest.
         bool needs_flush =
@@ -684,7 +552,6 @@ void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst) {
             FlushBarriers();
         }
 
-        // spartanport: the backing's real sample count, clamped to the host (#5595).
         const u32 actual_dst_samples = static_cast<u32>(dst->backing->image.image_ci.samples);
         blit_helper->ReinterpretColorAsMsDepth(
             dst->info.size.width, dst->info.size.height, actual_dst_samples, src->info.pixel_format,
@@ -727,11 +594,9 @@ void Runtime::CopyDepthStencil(VideoCore::Image* src, VideoCore::Image* dst,
         .extent = {dst->info.size.width, dst->info.size.height, 1},
     };
 
-    scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                      region](vk::CommandBuffer cmdbuf) {
-        cmdbuf.copyImage(src_image, vk::ImageLayout::eTransferSrcOptimal, dst_image,
-                         vk::ImageLayout::eTransferDstOptimal, region);
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.copyImage(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal, dst->GetImage(),
+                     vk::ImageLayout::eTransferDstOptimal, region);
 
     dst->flags |= VideoCore::ImageFlagBits::GpuModified;
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
@@ -755,6 +620,7 @@ void Runtime::ResolveImage(VideoCore::Image* src, VideoCore::Image* dst,
         FlushBarriers();
     }
 
+    const auto cmdbuf = scheduler.CommandBuffer();
     const auto [src_layers, dst_layers] = SanitizeCopyLayers(src->info, dst->info, 1);
     if (!needs_resolve) {
         const vk::ImageCopy region = {
@@ -774,11 +640,8 @@ void Runtime::ResolveImage(VideoCore::Image* src, VideoCore::Image* dst,
             .dstOffset = {0, 0, 0},
             .extent = {src->info.size.width, src->info.size.height, 1},
         };
-        scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                          region](vk::CommandBuffer cmdbuf) {
-            cmdbuf.copyImage(src_image, vk::ImageLayout::eTransferSrcOptimal, dst_image,
-                             vk::ImageLayout::eTransferDstOptimal, region);
-        });
+        cmdbuf.copyImage(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal, dst->GetImage(),
+                         vk::ImageLayout::eTransferDstOptimal, region);
     } else {
         const vk::ImageResolve region = {
             .srcSubresource{
@@ -797,11 +660,8 @@ void Runtime::ResolveImage(VideoCore::Image* src, VideoCore::Image* dst,
             .dstOffset = {0, 0, 0},
             .extent = {src->info.size.width, src->info.size.height, 1},
         };
-        scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
-                          region](vk::CommandBuffer cmdbuf) {
-            cmdbuf.resolveImage(src_image, vk::ImageLayout::eTransferSrcOptimal, dst_image,
-                                vk::ImageLayout::eTransferDstOptimal, region);
-        });
+        cmdbuf.resolveImage(src->GetImage(), vk::ImageLayout::eTransferSrcOptimal, dst->GetImage(),
+                            vk::ImageLayout::eTransferDstOptimal, region);
     }
 
     dst->flags |= VideoCore::ImageFlagBits::GpuModified;
@@ -826,17 +686,15 @@ void Runtime::ClearImage(VideoCore::Image* dst, const VideoCore::SubresourceRang
         .baseArrayLayer = range.base.layer,
         .layerCount = range.extent.layers,
     };
-    scheduler.Record([image = dst->GetImage(), color = clear_value.color,
-                      vk_range](vk::CommandBuffer cmdbuf) {
-        cmdbuf.clearColorImage(image, vk::ImageLayout::eTransferDstOptimal, color, vk_range);
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.clearColorImage(dst->GetImage(), vk::ImageLayout::eTransferDstOptimal, clear_value.color,
+                           vk_range);
 
     dst->flags |= VideoCore::ImageFlagBits::GpuModified;
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
 }
 
 void Runtime::SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool copy_backing) {
-    BeforeImageAccess();
     auto& backing = image->backing;
     auto& backing_images = image->backing_images;
     const auto& info = image->info;
@@ -845,16 +703,14 @@ void Runtime::SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool c
     }
     ASSERT_MSG(!image->info.props.is_depth, "Swapping samples is only valid for color images");
     VideoCore::Image::BackingImage* new_backing;
-    auto it = std::ranges::find(backing_images, num_samples,
-                                &VideoCore::Image::BackingImage::num_samples);
+    const auto extent = backing->image.image_ci.extent;
+    auto it = std::ranges::find_if(backing_images, [&](const auto& candidate) {
+        return candidate.num_samples == num_samples && candidate.image.image_ci.extent == extent;
+    });
     if (it == backing_images.end()) {
         auto new_image_ci = backing->image.image_ci;
         new_image_ci.samples = LiverpoolToVK::NumSamples(num_samples, image->supported_samples);
-
-        new_backing = &backing_images.emplace_back();
-        new_backing->num_samples = num_samples;
-        new_backing->image = VideoCore::UniqueImage{instance.GetDevice(), instance.GetAllocator()};
-        new_backing->image.Create(new_image_ci);
+        new_backing = &image->AddBacking(new_image_ci, num_samples);
 
         Vulkan::SetObjectName(instance.GetDevice(), new_backing->image.image,
                               "Image {}x{}x{} {} {} {:#x}:{:#x} L:{} M:{} S:{} (backing)",
@@ -900,7 +756,6 @@ void Runtime::SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool c
         FlushBarriers();
 
         // Copy between ms and non ms backing images
-        // spartanport: the backings' real sample counts, clamped to the host (#5595).
         const u32 actual_dst_samples = static_cast<u32>(new_backing->image.image_ci.samples);
         const bool actual_src_msaa = backing->image.image_ci.samples != vk::SampleCountFlagBits::e1;
         blit_helper->CopyBetweenMsImages(info.size.width, info.size.height, actual_dst_samples,
@@ -913,30 +768,27 @@ void Runtime::SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool c
         new_backing->state.pl_stage = dst_stage;
     }
 
+    image->InvalidateSubrects();
     backing = new_backing;
 }
 
 bool Runtime::IsBufferAccessed(const VideoCore::Buffer* handle, u64 offset, u64 size,
                                bool check_read_access) {
-    auto& barrier_tracker = block_barriers ? block_barriers->barrier_tracker : this->barrier_tracker;
-    const AddressRange range = {
-        .resource = reinterpret_cast<u64>(handle),
-        .range_start = offset,
-        .range_end = offset + size - 1,
-    };
-    bool has_access = barrier_tracker.FindRange(range, Access::Write);
+    MakeCurrent(handle);
+    bool has_access = resource->write_ranges.Overlaps(offset, offset + size);
     if (check_read_access && !has_access) {
-        has_access |= barrier_tracker.FindRange(range, Access::Read);
+        has_access |= resource->read_ranges.Overlaps(offset, offset + size);
     }
     return has_access;
 }
 
 void Runtime::AccessBuffer(const VideoCore::Buffer* handle, u64 offset, u64 size,
                            vk::PipelineStageFlags2 src_stage, vk::AccessFlags2 src_access) {
-    AddressRange range = {
-        .resource = reinterpret_cast<u64>(handle),
-        .range_start = offset,
-        .range_end = offset + size - 1,
+    MakeCurrent(handle);
+
+    const Interval range = {
+        .start = offset,
+        .end = offset + size,
     };
 
     constexpr static vk::AccessFlags2 READ_MASK =
@@ -951,42 +803,11 @@ void Runtime::AccessBuffer(const VideoCore::Buffer* handle, u64 offset, u64 size
         vk::AccessFlagBits2::eDepthStencilAttachmentWrite | vk::AccessFlagBits2::eTransferWrite |
         vk::AccessFlagBits2::eMemoryWrite | vk::AccessFlagBits2::eTransformFeedbackWriteEXT;
 
-    // spartanport: reads are tracked at 4 KiB granularity. Constant data comes from ring allocations
-    // at a new offset every draw; rounded, they land in ranges already present and the
-    // insert returns early instead of growing the tree until the next barrier flush.
-    // Wider read ranges only add barriers, never drop one.
-    if (!(src_access & WRITE_MASK) && !SpartanToggle::Disabled(SpartanToggle::CoarseReadTracking)) {
-        range.range_start &= ~u64{0xFFF};
-        range.range_end |= 0xFFF;
-    }
-    auto& barrier_tracker = block_barriers ? block_barriers->barrier_tracker : this->barrier_tracker;
-    auto& memory_barrier = block_barriers ? block_barriers->memory_barrier : this->memory_barrier;
-    if (block_barriers && (src_access & WRITE_MASK)) {
-        block_barriers->wrote = true;
-    }
-    const auto insert = [&](Access access) {
-        // The memo belongs to the shared tracker.
-        if (SpartanToggle::Disabled(SpartanToggle::AccessMemo) || block_barriers) {
-            barrier_tracker.InsertRange(range, access);
-            return;
-        }
-        u64 hash = range.resource ^ range.range_start * 0x9E3779B97F4A7C15ull ^
-                   range.range_end << 13 ^ u64(access) << 61;
-        hash = (hash ^ hash >> 31) * 0xFF51AFD7ED558CCDull;
-        auto& memo = access_memo[(hash ^ hash >> 29) % access_memo.size()];
-        if (memo.epoch == access_epoch && memo.resource == range.resource &&
-            memo.start == range.range_start && memo.end == range.range_end &&
-            memo.access == u32(access)) {
-            return;
-        }
-        barrier_tracker.InsertRange(range, access);
-        memo = {range.resource, range.range_start, range.range_end, access_epoch, u32(access)};
-    };
     if (src_access & WRITE_MASK) {
-        insert(Access::Write);
+        resource->write_ranges.Add(range);
     }
     if (src_access & READ_MASK) {
-        insert(Access::Read);
+        resource->read_ranges.Add(range);
     }
 
     memory_barrier.srcStageMask |= src_stage;
@@ -994,18 +815,6 @@ void Runtime::AccessBuffer(const VideoCore::Buffer* handle, u64 offset, u64 size
 }
 
 void Runtime::FlushBarriers() {
-    BeforeImageAccess();
-    if (auto* block = block_barriers) [[unlikely]] {
-        FlushBarriers(block->memory_barrier, block->image_barriers, block->barrier_tracker);
-        return;
-    }
-    FlushBarriers(memory_barrier, image_barriers, barrier_tracker);
-    ++access_epoch;
-}
-
-void Runtime::FlushBarriers(vk::MemoryBarrier2& memory_barrier,
-                            VideoCore::Image::Barriers& image_barriers,
-                            BarrierTracker& barrier_tracker) {
     vk::DependencyInfo dep_info{};
 
     if (memory_barrier.srcStageMask) {
@@ -1022,23 +831,31 @@ void Runtime::FlushBarriers(vk::MemoryBarrier2& memory_barrier,
     }
 
     scheduler.EndRendering();
-    scheduler.Record([memory = memory_barrier, has_memory = dep_info.memoryBarrierCount != 0,
-                      images = scheduler.RecordData(std::span<const vk::ImageMemoryBarrier2>(
-                          image_barriers.data(), image_barriers.size()))](vk::CommandBuffer cmdbuf) {
-        const vk::DependencyInfo info = {
-            .memoryBarrierCount = has_memory ? 1U : 0U,
-            .pMemoryBarriers = has_memory ? &memory : nullptr,
-            .imageMemoryBarrierCount = static_cast<u32>(images.size()),
-            .pImageMemoryBarriers = images.data(),
-        };
-        cmdbuf.pipelineBarrier2(info);
-    });
+    const auto cmdbuf = scheduler.CommandBuffer();
+    cmdbuf.pipelineBarrier2(dep_info);
 
     memory_barrier.srcStageMask = vk::PipelineStageFlagBits2::eNone;
     memory_barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
 
     image_barriers.clear();
-    barrier_tracker.Clear();
+    for (auto& resource : resources) {
+        resource.read_ranges.Clear();
+        resource.write_ranges.Clear();
+    }
+    resources.clear();
+    resource = nullptr;
+}
+
+void Runtime::MakeCurrent(const VideoCore::Buffer* handle) {
+    if (resource && resource->handle == handle) {
+        return;
+    }
+    auto it = std::ranges::find(resources, handle, &BufferBarriers::handle);
+    if (it != resources.end()) {
+        resource = std::addressof(*it);
+        return;
+    }
+    resource = &resources.emplace_back(handle);
 }
 
 } // namespace Vulkan

@@ -1,10 +1,9 @@
-// SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
 
 #include <span>
-#include <string>
 #include <unordered_map>
 
 #include "video_core/renderer_vulkan/vk_platform.h"
@@ -14,7 +13,6 @@
 
 namespace Frontend {
 class WindowSDL;
-struct WindowSystemInfo;
 }
 
 VK_DEFINE_HANDLE(VmaAllocator)
@@ -26,8 +24,6 @@ public:
     explicit Instance(bool validation = false, bool crash_diagnostic = false);
     explicit Instance(Frontend::WindowSDL& window, s32 physical_device_index,
                       bool enable_validation = false, bool enable_crash_diagnostic = false);
-    /// Headless logical device for renderer regression tests (no window or game).
-    explicit Instance(s32 physical_device_index, bool enable_validation);
     ~Instance();
 
     /// Returns a formatted string for the driver version
@@ -43,22 +39,6 @@ public:
     }
 
     /// Returns the current physical device
-    /// spartanport: device features the temporal upscaler reports as enabled.
-    bool IsStorageImageWriteWithoutFormatEnabled() const {
-        return features.shaderStorageImageWriteWithoutFormat;
-    }
-    bool IsShaderFloat16Enabled() const {
-        return vk12_features.shaderFloat16;
-    }
-    bool IsSubgroupSizeControlEnabled() const {
-        return vk13_features.subgroupSizeControl;
-    }
-
-    /// Largest VkBuffer the driver allows (2 GiB on AMD's Windows driver).
-    u64 GetMaxBufferSize() const {
-        return vk13_props.maxBufferSize;
-    }
-
     vk::PhysicalDevice GetPhysicalDevice() const {
         return physical_device;
     }
@@ -66,10 +46,6 @@ public:
     /// Returns the Vulkan device
     vk::Device GetDevice() const {
         return *device;
-    }
-
-    const vk::PipelineBinaryKeyKHR& GetPipelineBinaryGlobalKey() const {
-        return pipeline_binary_global_key;
     }
 
     /// Returns the VMA allocator handle
@@ -93,10 +69,6 @@ public:
 
     vk::Queue GetGraphicsQueue() const {
         return graphics_queue;
-    }
-
-    vk::Queue GetSparseQueue() const {
-        return sparse_queue;
     }
 
     vk::Queue GetPresentQueue() const {
@@ -140,6 +112,14 @@ public:
     /// Returns true if 8-bit ints are supported in shaders
     bool IsShaderInt8Supported() const {
         return vk12_features.shaderInt8;
+    }
+
+    bool IsMaintenance5Supported() const {
+        return maintenance_5;
+    }
+
+    bool IsMaintenance6Supported() const {
+        return maintenance_6;
     }
 
     /// Returns true if VK_KHR_maintenance8 is supported
@@ -246,6 +226,11 @@ public:
         return shader_atomic_float2 && shader_atomic_float2_features.shaderImageFloat32AtomicMinMax;
     }
 
+    bool IsShaderAtomicFloatShared32MinMaxSupported() const {
+        return shader_atomic_float2 &&
+               shader_atomic_float2_features.shaderSharedFloat32AtomicMinMax;
+    }
+
     /// Returns true if 64-bit integer atomic operations can be used on buffers
     bool IsBufferInt64AtomicsSupported() const {
         return vk12_features.shaderBufferInt64Atomics;
@@ -256,20 +241,15 @@ public:
         return vk12_features.shaderSharedInt64Atomics;
     }
 
+    /// Returns true when buffer device address can be used. RenderDoc hides it on drivers that
+    /// lack bufferDeviceAddressCaptureReplay.
+    bool IsBufferDeviceAddressSupported() const {
+        return vk12_features.bufferDeviceAddress;
+    }
+
     /// Returns true if the subgroup size can be set to match guest subgroup size
     bool IsSubgroupSize64Supported() const {
         return vk13_features.subgroupSizeControl && vk13_props.maxSubgroupSize >= 64;
-    }
-
-    /// spartanport: VK_KHR_pipeline_executable_properties is on (SPARTAN_WAVE_STATS=1, vk_wave_stats.h).
-    bool IsPipelineExecutableInfoEnabled() const {
-        return pipeline_executable_properties &&
-               pipeline_executable_features.pipelineExecutableInfo;
-    }
-
-    /// spartanport: VK_AMD_shader_info is on (statistics and ISA per stage, SPARTAN_WAVE_STATS=1).
-    bool IsAmdShaderInfoEnabled() const {
-        return amd_shader_info;
     }
 
     /// Returns true when VK_KHR_workgroup_memory_explicit_layout is supported.
@@ -300,20 +280,6 @@ public:
     }
 
     /// Returns true when the shaderSubgroupClock feature of
-    /// spartanport: the FSR 4 v07 INT8/DOT4 shaders can run (Float16, Int8, Int16, packed int8 dot
-    /// products, linear compute derivatives, extended storage image formats).
-    bool IsFsr4Int8Supported() const {
-        return vk12_features.shaderFloat16 && vk12_features.shaderInt8 && features.shaderInt16 &&
-               vk13_features.shaderIntegerDotProduct && compute_shader_derivatives &&
-               compute_shader_derivatives_features.computeDerivativeGroupLinear &&
-               features.shaderStorageImageExtendedFormats;
-    }
-
-    /// spartanport: FSR 4.1.1 (INT8 model passes and VK_VALVE_shader_mixed_float_dot_product).
-    bool IsFsr411Supported() const {
-        return IsFsr4Int8Supported() && mixed_float_dot_product;
-    }
-
     /// VK_KHR_shader_clock is supported.
     bool IsShaderSubgroupClockSupported() const {
         return shader_clock && shader_clock_features.shaderSubgroupClock;
@@ -414,11 +380,6 @@ public:
         return vk11_props.maxMemoryAllocationSize;
     }
 
-    /// Returns the physical device limits.
-    const vk::PhysicalDeviceLimits& GetLimits() const noexcept {
-        return properties.limits;
-    }
-
     /// Returns the vulkan 1.2 physical device properties.
     const vk::PhysicalDeviceVulkan12Properties& GetVk12Properties() const noexcept {
         return vk12_props;
@@ -498,6 +459,11 @@ public:
         return image_view_min_lod;
     }
 
+    /// Returns whether shaderStorageImageMultisample is supported.
+    bool IsMultisampleStorageImageSupported() const {
+        return features.shaderStorageImageMultisample;
+    }
+
     /// Returns whether the device can report memory usage.
     bool CanReportMemoryUsage() const {
         return supports_memory_budget;
@@ -505,13 +471,6 @@ public:
 
     /// Returns the amount of memory used.
     [[nodiscard]] u64 GetDeviceMemoryUsage() const;
-
-    /// spartanport: the driver's current budget of the heaps GetDeviceMemoryUsage counts
-    /// (VK_EXT_memory_budget: what this process can use now, other processes included).
-    [[nodiscard]] u64 GetDeviceMemoryBudgetNow() const;
-
-    /// spartanport: " N: used/budget MiB (size S)" for every heap, for the log.
-    [[nodiscard]] std::string HeapUsageText() const;
 
     /// Returns the total memory budget available to the device.
     [[nodiscard]] u64 GetTotalMemoryBudget() const {
@@ -522,7 +481,6 @@ public:
     [[nodiscard]] bool IsFormatSupported(vk::Format format, vk::FormatFeatureFlags2 flags) const;
 
 private:
-    Instance(const Frontend::WindowSystemInfo&, s32, bool, bool);
     /// Creates the logical device opportunistically enabling extensions
     bool CreateDevice();
 
@@ -558,15 +516,12 @@ private:
     vk::PhysicalDeviceImage2DViewOf3DFeaturesEXT image_2d_view_of_3d_features;
     vk::PhysicalDevicePrimitiveTopologyListRestartFeaturesEXT list_restart_features;
     vk::PhysicalDeviceShaderClockFeaturesKHR shader_clock_features;
-    vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_shader_derivatives_features;
-    vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_executable_features;
     vk::DriverIdKHR driver_id;
     vk::UniqueDebugUtilsMessengerEXT debug_callback{};
     std::string vendor_name;
     VmaAllocator allocator{};
     vk::Queue present_queue;
     vk::Queue graphics_queue;
-    vk::Queue sparse_queue;
     std::vector<vk::PhysicalDevice> physical_devices;
     std::vector<std::string> available_extensions;
     std::unordered_map<vk::Format, vk::FormatProperties3> format_properties;
@@ -592,18 +547,12 @@ private:
     bool shader_atomic_float2{};
     bool workgroup_memory_explicit_layout{};
     bool maintenance_5{};
-    bool pipeline_binaries{};
-    vk::PipelineBinaryKeyKHR pipeline_binary_global_key{};
+    bool maintenance_6{};
     bool maintenance_8{};
     bool attachment_feedback_loop{};
     bool image_2d_view_of_3d{};
-    bool mutable_descriptor_type{}; ///< enabled for XeSS only (vk_xess.cpp)
     bool image_view_min_lod{};
     bool shader_clock{};
-    bool pipeline_executable_properties{}; // spartanport: SPARTAN_WAVE_STATS=1 (vk_wave_stats.h)
-    bool amd_shader_info{};                // spartanport: with it, VK_AMD_shader_info when present
-    bool compute_shader_derivatives{};
-    bool mixed_float_dot_product{}; // spartanport: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
     bool supports_memory_budget{};
     bool supports_block_texel_view{};
     u64 total_memory_budget{};

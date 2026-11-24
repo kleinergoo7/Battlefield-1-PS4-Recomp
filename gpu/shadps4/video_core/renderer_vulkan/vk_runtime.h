@@ -3,9 +3,9 @@
 
 #pragma once
 
+#include "common/interval_set.h"
 #include "common/types.h"
 #include "video_core/buffer_cache/buffer.h"
-#include "video_core/renderer_vulkan/vk_barrier_tracker.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
 #include "video_core/texture_cache/image.h"
 #include "video_core/texture_cache/types.h"
@@ -16,30 +16,13 @@ class BlitHelper;
 
 namespace Vulkan {
 
-class GpuProfiler;
-class SceneTargets;
-
 class Instance;
 class Scheduler;
-
-/// spartanport: what a block of draws does to barriers, kept apart from the shared state until
-/// the stitch (parallel recording, docs/plans/2026-11-parallel-recording-spec.md).
-struct BlockBarriers {
-    BarrierTracker barrier_tracker;
-    VideoCore::Image::Barriers image_barriers;
-    vk::MemoryBarrier2 memory_barrier{};
-    std::vector<std::pair<VideoCore::Image*, VideoCore::Image::BlockShadow>> images;
-    bool wrote = false; ///< a buffer write (shader, transfer) in the block
-};
 
 class Runtime {
 public:
     explicit Runtime(const Instance& instance, Scheduler& scheduler);
     ~Runtime() = default;
-
-    Scheduler& GetScheduler() {
-        return scheduler;
-    }
 
     const Instance& GetInstance() const {
         return instance;
@@ -50,7 +33,6 @@ public:
     }
 
     void TickFrame();
-    SceneTargets* scene_targets = nullptr;
 
     void CopyBuffer(const VideoCore::Buffer* src, const VideoCore::Buffer* dst,
                     std::span<const vk::BufferCopy> copies);
@@ -63,28 +45,16 @@ public:
                  vk::PipelineStageFlags2 dst_stage, vk::AccessFlags2 dst_access,
                  std::optional<VideoCore::SubresourceRange> subres_range = {});
 
-    /// SPARTAN_GPU_PROFILE: a profiler segment for a transfer of `image` while it lives; the
-    /// segment it interrupted continues afterwards.
-    class TransferMark {
-    public:
-        TransferMark(Runtime& runtime, const char* what, const VideoCore::Image& image);
-        ~TransferMark();
-        TransferMark(const TransferMark&) = delete;
-        TransferMark& operator=(const TransferMark&) = delete;
-
-    private:
-        GpuProfiler* profiler = nullptr;
-        u64 resume = 0;
-    };
     void UploadImage(VideoCore::Image* dst, const VideoCore::Buffer* src,
                      std::span<const vk::BufferImageCopy> upload_copies);
     void DownloadImage(VideoCore::Image* src, const VideoCore::Buffer* dst,
                        std::span<const vk::BufferImageCopy> download_copies);
 
     void CopyImage(VideoCore::Image* src, VideoCore::Image* dst);
-    /// spartanport: mip 0 of an image sharing guest memory with `dst` (texture_cache aliasing).
-    void CopyAliasImage(VideoCore::Image* src, VideoCore::Image* dst, const vk::Extent3D& extent);
-    void CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst);
+    VideoCore::ImageView& FindSubrectView(VideoCore::Image& image, const VideoCore::ImageInfo& info,
+                                          const VideoCore::ImageViewInfo& view_info);
+    void CopyImageWithBuffer(VideoCore::Image* src, VideoCore::Image* dst,
+                             const VideoCore::Buffer* buffer, u64 offset);
     void CopyMip(VideoCore::Image* src, VideoCore::Image* dst, u32 mip, u32 slice);
 
     void CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst);
@@ -108,58 +78,24 @@ public:
 
     void FlushBarriers();
 
-    /// spartanport: until EndBlock(), this thread's barriers and image layout changes go to
-    /// `block` (parallel recording); StitchBlock() then records the barriers that order the block
-    /// after everything recorded before it, and makes its end state the real one.
-    void BeginBlock(BlockBarriers& block);
-    void EndBlock();
-    void StitchBlock(BlockBarriers& block);
-    [[nodiscard]] bool InBlock() const;
-    /// Whether blocks stitched since the last call wrote buffers (what follows them then needs a
-    /// memory barrier); clears it.
-    bool TakeBlocksWrote() {
-        return std::exchange(blocks_wrote, false);
-    }
-    void FlushBarriers(vk::MemoryBarrier2& memory_barrier, VideoCore::Image::Barriers& image_barriers,
-                       BarrierTracker& barrier_tracker);
-    /// The layout this thread sees for `image` (a block sees its own shadow).
-    [[nodiscard]] vk::ImageLayout Layout(const VideoCore::Image& image) const;
-
-    /// spartanport: runs before this thread changes image state (layouts, pending image
-    /// barriers): the rasterizer joins its texture binding helper there (BindHelper).
-    void SetImageAccessHook(void (*hook)(void*), void* context) {
-        image_access_hook = hook;
-        image_access_context = context;
-    }
-    void BeforeImageAccess() {
-        if (image_access_hook) {
-            image_access_hook(image_access_context);
-        }
-    }
+private:
+    void MakeCurrent(const VideoCore::Buffer* handle);
 
 private:
-    static inline thread_local BlockBarriers* block_barriers = nullptr;
-    bool blocks_wrote = false; ///< a stitched block wrote buffers since the last memory barrier
-    void (*image_access_hook)(void*) = nullptr;
-    void* image_access_context = nullptr;
     const Instance& instance;
     Scheduler& scheduler;
     std::unique_ptr<VideoCore::BlitHelper> blit_helper;
     StagingBufferPool staging_pool;
-    BarrierTracker barrier_tracker;
+    struct BufferBarriers {
+        const VideoCore::Buffer* handle;
+        using AccessList = IntervalList<Interval>;
+        AccessList read_ranges;
+        AccessList write_ranges;
+    };
+    BufferBarriers* resource{};
+    std::vector<BufferBarriers> resources;
     VideoCore::Image::Barriers image_barriers;
     vk::MemoryBarrier2 memory_barrier{};
-    // spartanport: ranges inserted into barrier_tracker since its last Clear(); re-inserting a
-    // contained range is a no-op, and draws re-bind the same ranges constantly.
-    struct AccessMemo {
-        u64 resource;
-        u64 start;
-        u64 end;
-        u32 epoch;
-        u32 access;
-    };
-    std::array<AccessMemo, 512> access_memo{};
-    u32 access_epoch = 1;
 };
 
 } // namespace Vulkan

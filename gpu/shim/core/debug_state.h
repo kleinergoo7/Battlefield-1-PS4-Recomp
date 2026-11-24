@@ -20,6 +20,7 @@ class DebugStateImpl {
 public:
     using CsState = AmdGpu::ComputeProgram;
     bool is_using_fsr{};
+    struct { u32 width{}, height{}; } game_resolution, output_resolution;
     void IncFlipFrameNum() {}
     void IncDrawCall() noexcept {}
     void IncDispatch() noexcept {}

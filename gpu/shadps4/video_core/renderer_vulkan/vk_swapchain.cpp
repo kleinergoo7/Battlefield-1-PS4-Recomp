@@ -2,35 +2,26 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
-#include <cstdio>
 #include <limits>
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "core/emulator_settings.h"
-#include "spartanport_settings.h"
 #include "imgui/renderer/imgui_core.h"
 #include "sdl_window.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
-// spartanport: synchronize device-idle waits with queue submissions.
-#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 
 namespace Vulkan {
+
+static constexpr vk::SurfaceFormatKHR SURFACE_FORMAT_HDR = {
+    .format = vk::Format::eA2B10G10R10UnormPack32,
+    .colorSpace = vk::ColorSpaceKHR::eHdr10St2084EXT,
+};
 
 Swapchain::Swapchain(const Instance& instance_, const Frontend::WindowSDL& window_)
     : instance{instance_}, window{window_}, surface{CreateSurface(instance.GetInstance(), window)} {
     FindPresentFormat();
     FindPresentMode();
-    // spartanport: HDR output (SPARTAN_HDR) starts on the HDR10 swapchain and stays there, so every
-    // pass is built for its format; the post process pass expands the game's SDR picture to it
-    // (Presenter::SetHDR). Sampled once, as the launcher's HDR switch takes effect on restart.
-    // When it is on, the presenter logs the "HDR output: on" line with the paper white and peak.
-    needs_hdr = supports_hdr;
-    if (EmulatorSettings.IsHdrAllowed() && !supports_hdr) {
-        std::printf("HDR output: %s\n", window.GetWindowInfo().hdr_enabled
-                                            ? "off (the display offers no HDR10 format)"
-                                            : "off (HDR is off in Windows for this display)");
-    }
 
     Create(window.GetWidth(), window.GetHeight());
     ImGui::Core::Initialize(instance, window, image_count, surface_format.format);
@@ -38,10 +29,7 @@ Swapchain::Swapchain(const Instance& instance_, const Frontend::WindowSDL& windo
 
 Swapchain::~Swapchain() {
     Destroy();
-    if (surface) {
-        instance.GetInstance().destroySurfaceKHR(surface);
-        surface = nullptr;
-    }
+    instance.GetInstance().destroySurfaceKHR(surface);
 }
 
 void Swapchain::Create(u32 width_, u32 height_) {
@@ -51,10 +39,7 @@ void Swapchain::Create(u32 width_, u32 height_) {
 
     Destroy();
 
-    if (width == 0 || height == 0 || !SetSurfaceProperties()) {
-        needs_recreation = true;
-        return;
-    }
+    SetSurfaceProperties();
 
     const std::array queue_family_indices = {
         instance.GetGraphicsQueueFamilyIndex(),
@@ -86,19 +71,6 @@ void Swapchain::Create(u32 width_, u32 height_) {
     };
 
     auto [swapchain_result, chain] = instance.GetDevice().createSwapchainKHR(swapchain_info);
-    if (swapchain_result == vk::Result::eErrorNativeWindowInUseKHR ||
-        swapchain_result == vk::Result::eErrorSurfaceLostKHR ||
-        swapchain_result == vk::Result::eErrorOutOfDateKHR ||
-        swapchain_result == vk::Result::eErrorInitializationFailed) {
-        LOG_WARNING(Render_Vulkan, "Failed to create swapchain ({}), postponing until window is ready",
-                    vk::to_string(swapchain_result));
-        if (swapchain_result == vk::Result::eErrorSurfaceLostKHR) {
-            RecreateSurface();
-        }
-        needs_recreation = true;
-        return;
-    }
-
     ASSERT_MSG(swapchain_result == vk::Result::eSuccess, "Failed to create swapchain: {}",
                vk::to_string(swapchain_result));
     swapchain = chain;
@@ -118,8 +90,6 @@ void Swapchain::SetHDR(bool hdr) {
         return;
     }
 
-    // spartanport: HDR recreation waits for every queue, so exclude concurrent submissions.
-    std::scoped_lock submit_lock{Scheduler::submit_mutex};
     auto result = instance.GetDevice().waitIdle();
     if (result != vk::Result::eSuccess) {
         LOG_WARNING(ImGui, "Failed to wait for Vulkan device idle on mode change: {}",
@@ -133,15 +103,6 @@ void Swapchain::SetHDR(bool hdr) {
 }
 
 bool Swapchain::AcquireNextImage() {
-    if (!swapchain || image_acquired.empty()) {
-        needs_recreation = true;
-        return false;
-    }
-
-    if (frame_index >= image_acquired.size()) {
-        frame_index = 0;
-    }
-
     vk::Device device = instance.GetDevice();
     vk::Result result =
         device.acquireNextImageKHR(swapchain, std::numeric_limits<u64>::max(),
@@ -167,11 +128,6 @@ bool Swapchain::AcquireNextImage() {
 }
 
 bool Swapchain::Present() {
-    if (!swapchain || present_ready.empty() || image_index >= present_ready.size()) {
-        needs_recreation = true;
-        return false;
-    }
-
     const vk::PresentInfoKHR present_info = {
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &present_ready[image_index],
@@ -181,19 +137,14 @@ bool Swapchain::Present() {
     };
 
     auto result = instance.GetPresentQueue().presentKHR(present_info);
-    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
-        result == vk::Result::eErrorSurfaceLostKHR) {
+    if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
         needs_recreation = true;
     } else {
         ASSERT_MSG(result == vk::Result::eSuccess, "Swapchain presentation failed: {}",
                    vk::to_string(result));
     }
 
-    if (image_count > 0) {
-        frame_index = (frame_index + 1) % image_count;
-    } else {
-        frame_index = 0;
-    }
+    frame_index = (frame_index + 1) % image_count;
 
     return !needs_recreation;
 }
@@ -211,9 +162,8 @@ void Swapchain::FindPresentFormat() {
         std::find_if(formats.begin(), formats.end(), [](const vk::SurfaceFormatKHR& format) {
             return format == SURFACE_FORMAT_HDR;
         }) != formats.end();
-    // Also make sure that user allowed us to use HDR, and (spartanport) that HDR is on for the
-    // window's display: a driver can offer the HDR10 format for an SDR desktop too.
-    supports_hdr &= EmulatorSettings.IsHdrAllowed() && window.GetWindowInfo().hdr_enabled;
+    // Also make sure that user allowed us to use HDR
+    supports_hdr &= EmulatorSettings.IsHdrAllowed();
 
     // If there is a single undefined surface format, the device doesn't care, so we'll just use
     // RGBA sRGB.
@@ -248,61 +198,33 @@ void Swapchain::FindPresentMode() {
         return;
     }
 
-    // spartanport: VSync on is Fifo (no tearing, waits for the display); off is Mailbox when the
-    // driver has it, else Immediate (tearing allowed), else Fifo.
-    vsync = SpartanSettings::Get().vsync;
-    const auto has = [&](vk::PresentModeKHR mode) { return std::ranges::find(modes, mode) != modes.cend(); };
-    present_mode = vsync ? vk::PresentModeKHR::eFifo
-                   : has(vk::PresentModeKHR::eMailbox) ? vk::PresentModeKHR::eMailbox
-                   : has(vk::PresentModeKHR::eImmediate) ? vk::PresentModeKHR::eImmediate
-                                                         : vk::PresentModeKHR::eFifo;
-    std::printf("Swapchain: VSync %s (%s)\n", vsync ? "on" : "off", vk::to_string(present_mode).c_str());
-}
+    const auto requested_mode = EmulatorSettings.GetPresentMode();
+    if (requested_mode == "Mailbox") {
+        present_mode = vk::PresentModeKHR::eMailbox;
+    } else if (requested_mode == "Fifo") {
+        present_mode = vk::PresentModeKHR::eFifo;
+    } else if (requested_mode == "Immediate") {
+        present_mode = vk::PresentModeKHR::eImmediate;
+    } else {
+        LOG_ERROR(Render_Vulkan, "Unknown present mode {}, defaulting to Mailbox.",
+                  EmulatorSettings.GetPresentMode());
+        present_mode = vk::PresentModeKHR::eMailbox;
+    }
 
-void Swapchain::UpdateVsync() {
-    if (SpartanSettings::Get().vsync == vsync) {
-        return;
-    }
-    // spartanport: keep submissions out of both this wait and Destroy's wait during recreation.
-    std::scoped_lock submit_lock{Scheduler::submit_mutex};
-    if (const auto result = instance.GetDevice().waitIdle(); result != vk::Result::eSuccess) {
-        LOG_WARNING(Render_Vulkan, "Failed to wait for the device before a VSync change: {}",
-                    vk::to_string(result));
-    }
-    FindPresentMode();
-    Recreate(width, height);
-}
-
-void Swapchain::RecreateSurface() {
-    Destroy();
-    if (surface) {
-        instance.GetInstance().destroySurfaceKHR(surface);
-        surface = nullptr;
-    }
-    surface = CreateSurface(instance.GetInstance(), window);
-    const auto prev_format = surface_format.format;
-    FindPresentFormat();
-    FindPresentMode();
-    if (surface_format.format != prev_format) {
-        ImGui::Core::OnSurfaceFormatChange(needs_hdr ? SURFACE_FORMAT_HDR.format
-                                                     : surface_format.format);
+    if (std::ranges::find(modes, present_mode) == modes.cend()) {
+        // FIFO is guaranteed to be supported by the Vulkan spec.
+        constexpr auto fallback = vk::PresentModeKHR::eFifo;
+        LOG_WARNING(Render, "Requested present mode {} is not supported, falling back to {}.",
+                    vk::to_string(present_mode), vk::to_string(fallback));
+        present_mode = fallback;
     }
 }
 
-bool Swapchain::SetSurfaceProperties() {
-    auto [capabilities_result, capabilities] =
+void Swapchain::SetSurfaceProperties() {
+    const auto [capabilities_result, capabilities] =
         instance.GetPhysicalDevice().getSurfaceCapabilitiesKHR(surface);
-    if (capabilities_result == vk::Result::eErrorSurfaceLostKHR) {
-        LOG_WARNING(Render_Vulkan, "Surface lost while querying capabilities; recreating surface...");
-        RecreateSurface();
-        std::tie(capabilities_result, capabilities) =
-            instance.GetPhysicalDevice().getSurfaceCapabilitiesKHR(surface);
-    }
-    if (capabilities_result != vk::Result::eSuccess) {
-        LOG_WARNING(Render_Vulkan, "Failed to query surface capabilities: {}",
-                    vk::to_string(capabilities_result));
-        return false;
-    }
+    ASSERT_MSG(capabilities_result == vk::Result::eSuccess,
+               "Failed to query surface capabilities: {}", vk::to_string(capabilities_result));
 
     extent = capabilities.currentExtent;
     if (capabilities.currentExtent.width == std::numeric_limits<u32>::max()) {
@@ -312,17 +234,8 @@ bool Swapchain::SetSurfaceProperties() {
                                  std::min(capabilities.maxImageExtent.height, height));
     }
 
-    if (extent.width == 0 || extent.height == 0) {
-        LOG_DEBUG(Render_Vulkan, "Surface extent is 0x0; postponing swapchain creation");
-        return false;
-    }
-
     // Select number of images in swap chain, we prefer one buffer in the background to work on
     image_count = capabilities.minImageCount + 1;
-    // spartanport: frame generation presents two images per game frame.
-    if (SpartanSettings::Get().startup_frame_generation != 0) {
-        image_count += 2;
-    }
     if (capabilities.maxImageCount > 0) {
         image_count = std::min(image_count, capabilities.maxImageCount);
     }
@@ -338,8 +251,6 @@ bool Swapchain::SetSurfaceProperties() {
     if (!(capabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eOpaque)) {
         composite_alpha = vk::CompositeAlphaFlagBitsKHR::eInherit;
     }
-
-    return true;
 }
 
 void Swapchain::Destroy() {
@@ -357,7 +268,6 @@ void Swapchain::Destroy() {
 
     if (swapchain) {
         device.destroySwapchainKHR(swapchain);
-        swapchain = nullptr;
     }
 
     for (const auto& sem : image_acquired) {
@@ -369,10 +279,6 @@ void Swapchain::Destroy() {
 
     image_acquired.clear();
     present_ready.clear();
-    images.clear();
-    image_count = 0;
-    frame_index = 0;
-    image_index = 0;
 }
 
 void Swapchain::RefreshSemaphores() {
