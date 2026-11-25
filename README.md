@@ -1,9 +1,11 @@
 # Battlefield 1 PS4 Recomp — Native PC Port (BF1 PlayStation 4 Recompilation for Windows & Linux)
 
 **Battlefield 1 (BF1) for PlayStation 4 (PS4, CUSA02429), recompiled into a native PC port for Windows 10/11 and Linux.**
-This is an unofficial, experimental **static recompilation / native port of the PS4 version of Battlefield 1 (Frostbite engine)** — the original
-x86-64 game code runs directly on your PC CPU with a custom runtime, and graphics are rendered through the
-**shadPS4 Vulkan video core**. Goal: offline single-player campaign gameplay on PC without emulation overhead.
+This project is a **fork of [SpartanPort](https://github.com/FelipePrado0/SpartanPort)** (the God of War III Remastered
+PS4-to-PC native port), adapted to bring **Battlefield 1 (Frostbite engine)** to PC the same way: the original
+x86-64 game code runs directly on your PC CPU with a custom runtime. Graphics go through SpartanPort's Vulkan video
+core, which is derived from **shadPS4** — so this project uses shadPS4 GPU technology *via* SpartanPort, not as a
+shadPS4 fork. Goal: offline single-player campaign gameplay on PC without emulation overhead.
 
 > **No game files are included.** You must supply a dump of **your own PS4 copy of Battlefield 1 (CUSA02429, v1.00)**.
 > This project is not affiliated with or endorsed by Electronic Arts, DICE, or Sony Interactive Entertainment.
@@ -17,12 +19,16 @@ x86-64 game code runs directly on your PC CPU with a custom runtime, and graphic
 - Active work: module loading/inventory (`src/runtime_bf1_stubs.c`, `import_names_bf1.inc`), CUSA02429 patches (`patches/CUSA02429.xml`),
   Frostbite GPU fixes, offline stubs for NP/PSN/network libraries. See [`docs/plans/`](docs/plans/) for phase plans.
 
-## How it works
+## How it works (and where shadPS4 fits in)
+
+This repo was forked from SpartanPort, so it inherits SpartanPort's architecture:
 
 1. The PS4 executable (x86-64) is statically recompiled: game code executes natively on PC, PlayStation system calls are
-   reimplemented by the runtime (`src/runtime*.c`).
-2. GPU commands are translated by the shadPS4-derived Vulkan video core (`gpu/shadps4`) — no full-console emulation.
-3. The `bf1-shadps4-gpu` branch experimentally swaps in the upstream shadPS4 renderer to isolate lighting/post-process issues.
+   reimplemented by the runtime (`src/runtime*.c` — this fork adds BF1-specific stubs, import tables and CUSA02429 patches).
+2. GPU commands are translated by SpartanPort's Vulkan video core (`gpu/shadps4`), which SpartanPort derived from the
+   shadPS4 emulator project — no full-console emulation, only the GPU backend is reused.
+3. The `bf1-shadps4-gpu` branch experimentally swaps that derived core for the **upstream shadPS4 renderer directly**
+   (v0.21.1 WIP) to test whether SpartanPort's GPU-core divergence causes BF1's blown-out lighting.
 
 ## Requirements
 
